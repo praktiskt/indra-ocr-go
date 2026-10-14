@@ -18,8 +18,8 @@ import "C"
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
+	"syscall"
 	"unsafe"
 
 	ort "github.com/yalue/onnxruntime_go"
@@ -30,10 +30,10 @@ var (
 	envErr  error
 )
 
-// InitLib loads libonnxruntime from ORT_LIB_PATH, a standard location,
-// or the bundled embedded copy (extracted once to the cache dir, with
-// its libstdc++/libgcc_s dependencies preloaded), then initializes the
-// process-wide environment. Call once before NewSessions.
+// InitLib loads libonnxruntime from ORT_LIB_PATH, a standard
+// location, or the bundled embedded copy. Embedded libs are
+// loaded via anonymous memfd: nothing is written to disk.
+// Call once before NewSessions.
 func InitLib() error {
 	envOnce.Do(func() {
 		if !ort.IsInitialized() {
@@ -42,23 +42,10 @@ func InitLib() error {
 			} else if p := findStdLib(); p != "" {
 				ort.SetSharedLibraryPath(p)
 			} else {
-				dir, err := extractLibs()
-				if err != nil {
+				if err := loadEmbeddedLibs(); err != nil {
 					envErr = err
 					return
 				}
-				// Preload C++ runtime deps so the bundled
-				// libonnxruntime resolves on minimal systems.
-				for _, dep := range []string{"libgcc_s.so.1", "libstdc++.so.6"} {
-					cpath := C.CString(filepath.Join(dir, dep))
-					msg := C.preload_lib(cpath)
-					C.free(unsafe.Pointer(cpath))
-					if msg != nil {
-						envErr = fmt.Errorf("indra: preload %s: %s", dep, C.GoString(msg))
-						return
-					}
-				}
-				ort.SetSharedLibraryPath(filepath.Join(dir, "libonnxruntime.so"))
 			}
 			envErr = ort.InitializeEnvironment()
 		}
@@ -79,42 +66,58 @@ func findStdLib() string {
 	return ""
 }
 
-// extractLibs writes the bundled native libraries to the cache dir and
-// returns the dir. Subsequent runs reuse the cached copies.
-func extractLibs() (string, error) {
-	base, err := os.UserCacheDir()
-	if err != nil {
-		base = os.TempDir()
+// memfdFDs keeps the anonymous fds alive for the process
+// lifetime; the loader may map from them lazily.
+var memfdFDs []int
+
+// loadEmbeddedLibs dlopens the bundled libgcc_s, libstdc++
+// and libonnxruntime from anonymous memory (memfd), so the
+// package needs no writable filesystem. libonnxruntime's
+// DT_NEEDED entries resolve against the preloaded runtimes.
+func loadEmbeddedLibs() error {
+	if sysMemfdCreate < 0 {
+		return fmt.Errorf("indra: embedded libs need linux/amd64; set ORT_LIB_PATH")
 	}
-	dir := filepath.Join(base, "indra-ocr", "lib")
-	var missing bool
-	for _, f := range []string{"libonnxruntime.so", "libstdc++.so.6", "libgcc_s.so.1"} {
-		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
-			missing = true
-			break
-		}
-	}
-	if !missing {
-		return dir, nil
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	for _, f := range []string{"libonnxruntime.so", "libstdc++.so.6", "libgcc_s.so.1"} {
+	var ortPath string
+	for _, f := range []string{"libgcc_s.so.1", "libstdc++.so.6", "libonnxruntime.so"} {
 		data, err := libFS.ReadFile("lib/" + f)
 		if err != nil {
-			return "", fmt.Errorf("indra: embedded %s: %w", f, err)
+			return fmt.Errorf("indra: embedded %s: %w", f, err)
 		}
-		dst := filepath.Join(dir, f)
-		tmp := dst + ".part"
-		if err := os.WriteFile(tmp, data, 0o755); err != nil {
-			return "", err
+		name := append([]byte(f), 0)
+		fd, _, errno := syscall.Syscall(uintptr(sysMemfdCreate),
+			uintptr(unsafe.Pointer(&name[0])), 0x0001 /* MFD_CLOEXEC */, 0)
+		if errno != 0 {
+			return fmt.Errorf("indra: memfd %s: %w", f, errno)
 		}
-		if err := os.Rename(tmp, dst); err != nil {
-			return "", err
+		memfdFDs = append(memfdFDs, int(fd))
+		if err := writeAll(int(fd), data); err != nil {
+			return fmt.Errorf("indra: memfd %s: %w", f, err)
+		}
+		path := fmt.Sprintf("/proc/self/fd/%d", fd)
+		cpath := C.CString(path)
+		msg := C.preload_lib(cpath)
+		C.free(unsafe.Pointer(cpath))
+		if msg != nil {
+			return fmt.Errorf("indra: load %s: %s", f, C.GoString(msg))
+		}
+		if f == "libonnxruntime.so" {
+			ortPath = path
 		}
 	}
-	return dir, nil
+	ort.SetSharedLibraryPath(ortPath)
+	return nil
+}
+
+func writeAll(fd int, data []byte) error {
+	for len(data) > 0 {
+		n, err := syscall.Write(fd, data)
+		if err != nil {
+			return err
+		}
+		data = data[n:]
+	}
+	return nil
 }
 
 // Sessions holds the model sessions. Mirrors OrtOCR.__init__ model set.
