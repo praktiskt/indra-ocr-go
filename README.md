@@ -8,7 +8,8 @@ Native Go port of the [Indra OCR pipeline](https://github.com/datalab-to/indra) 
 
 - Go 1.26+
 - CGO enabled
-- libonnxruntime (see [onnxruntime_go](https://github.com/yalue/onnxruntime_go))
+- linux/amd64: zero external deps (ONNX Runtime 1.31.0 bundled)
+- other platforms: install [libonnxruntime](https://github.com/microsoft/onnxruntime) and set `ORT_LIB_PATH`
 
 ## Install
 
