@@ -1,11 +1,26 @@
-// ONNX Runtime sessions. Requires CGO and libonnxruntime (bundled on linux/amd64).
+// ONNX Runtime sessions. Requires CGO; native libs bundled on linux/amd64.
 package indra
+
+/*
+#cgo LDFLAGS: -ldl
+#include <dlfcn.h>
+#include <stdlib.h>
+
+// preload_lib dlopens path; returns NULL on success or dlerror() text.
+static const char* preload_lib(const char* path) {
+	void* h = dlopen(path, RTLD_LAZY | RTLD_GLOBAL);
+	if (h != NULL) return NULL;
+	return dlerror();
+}
+*/
+import "C"
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"unsafe"
 
 	ort "github.com/yalue/onnxruntime_go"
 )
@@ -16,8 +31,9 @@ var (
 )
 
 // InitLib loads libonnxruntime from ORT_LIB_PATH, a standard location,
-// or the bundled embedded copy (extracted once to the cache dir), then
-// initializes the process-wide environment. Call once before NewSessions.
+// or the bundled embedded copy (extracted once to the cache dir, with
+// its libstdc++/libgcc_s dependencies preloaded), then initializes the
+// process-wide environment. Call once before NewSessions.
 func InitLib() error {
 	envOnce.Do(func() {
 		if !ort.IsInitialized() {
@@ -26,12 +42,23 @@ func InitLib() error {
 			} else if p := findStdLib(); p != "" {
 				ort.SetSharedLibraryPath(p)
 			} else {
-				p, err := extractLib()
+				dir, err := extractLibs()
 				if err != nil {
 					envErr = err
 					return
 				}
-				ort.SetSharedLibraryPath(p)
+				// Preload C++ runtime deps so the bundled
+				// libonnxruntime resolves on minimal systems.
+				for _, dep := range []string{"libgcc_s.so.1", "libstdc++.so.6"} {
+					cpath := C.CString(filepath.Join(dir, dep))
+					msg := C.preload_lib(cpath)
+					C.free(unsafe.Pointer(cpath))
+					if msg != nil {
+						envErr = fmt.Errorf("indra: preload %s: %s", dep, C.GoString(msg))
+						return
+					}
+				}
+				ort.SetSharedLibraryPath(filepath.Join(dir, "libonnxruntime.so"))
 			}
 			envErr = ort.InitializeEnvironment()
 		}
@@ -52,23 +79,33 @@ func findStdLib() string {
 	return ""
 }
 
-// extractLib writes the bundled libonnxruntime.so to the cache dir and
-// returns its path. Subsequent runs reuse the cached copy.
-func extractLib() (string, error) {
+// extractLibs writes the bundled native libraries to the cache dir and
+// returns the dir. Subsequent runs reuse the cached copies.
+func extractLibs() (string, error) {
 	base, err := os.UserCacheDir()
 	if err != nil {
 		base = os.TempDir()
 	}
 	dir := filepath.Join(base, "indra-ocr", "lib")
-	dst := filepath.Join(dir, "libonnxruntime.so")
-	if _, err := os.Stat(dst); err != nil {
-		data, err := libFS.ReadFile("lib/libonnxruntime.so")
+	var missing bool
+	for _, f := range []string{"libonnxruntime.so", "libstdc++.so.6", "libgcc_s.so.1"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			missing = true
+			break
+		}
+	}
+	if !missing {
+		return dir, nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	for _, f := range []string{"libonnxruntime.so", "libstdc++.so.6", "libgcc_s.so.1"} {
+		data, err := libFS.ReadFile("lib/" + f)
 		if err != nil {
-			return "", fmt.Errorf("indra: embedded libonnxruntime: %w", err)
+			return "", fmt.Errorf("indra: embedded %s: %w", f, err)
 		}
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return "", err
-		}
+		dst := filepath.Join(dir, f)
 		tmp := dst + ".part"
 		if err := os.WriteFile(tmp, data, 0o755); err != nil {
 			return "", err
@@ -77,7 +114,7 @@ func extractLib() (string, error) {
 			return "", err
 		}
 	}
-	return dst, nil
+	return dir, nil
 }
 
 // Sessions holds the model sessions. Mirrors OrtOCR.__init__ model set.

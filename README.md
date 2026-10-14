@@ -8,7 +8,7 @@ Native Go port of the [Indra OCR pipeline](https://github.com/datalab-to/indra) 
 
 - Go 1.26+
 - CGO enabled
-- linux/amd64: zero external deps (ONNX Runtime 1.31.0 bundled)
+- linux/amd64: zero external deps (ONNX Runtime 1.31.0 + libstdc++/libgcc bundled)
 - other platforms: install [libonnxruntime](https://github.com/microsoft/onnxruntime) and set `ORT_LIB_PATH`
 
 ## Install
@@ -100,4 +100,4 @@ page := pool.Call(gray)
 
 ## License
 
-Code Apache-2.0. Models [OpenRAIL-M](LICENSE-MODELS). See file for terms.
+Code Apache-2.0. Models [OpenRAIL-M](LICENSE-MODELS). Bundled native libs [MIT / GPLv3+Runtime Exception](LICENSE-LIBS).

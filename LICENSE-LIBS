@@ -1,0 +1,12 @@
+Bundled native libraries (linux/amd64):
+
+- libonnxruntime.so 1.31.0 — MIT, (c) Microsoft Corporation
+  https://github.com/microsoft/onnxruntime
+- libstdc++.so.6 (GCC 13 runtime) — GPLv3 with GCC Runtime Library
+  Exception, (c) Free Software Foundation
+- libgcc_s.so.1 (GCC 13 runtime) — GPLv3 with GCC Runtime Library
+  Exception, (c) Free Software Foundation
+
+The GCC Runtime Library Exception permits linking and redistribution
+with non-GPL software. See:
+https://gcc.gnu.org/onlinedocs/libstdc++/manual/license.html
