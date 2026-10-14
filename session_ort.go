@@ -1,9 +1,10 @@
-// ONNX Runtime sessions. Requires CGO and libonnxruntime.
+// ONNX Runtime sessions. Requires CGO and libonnxruntime (bundled on linux/amd64).
 package indra
 
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	ort "github.com/yalue/onnxruntime_go"
@@ -14,29 +15,69 @@ var (
 	envErr  error
 )
 
-// InitLib loads libonnxruntime from ORT_LIB_PATH or standard locations and
+// InitLib loads libonnxruntime from ORT_LIB_PATH, a standard location,
+// or the bundled embedded copy (extracted once to the cache dir), then
 // initializes the process-wide environment. Call once before NewSessions.
 func InitLib() error {
 	envOnce.Do(func() {
 		if !ort.IsInitialized() {
 			if p := os.Getenv("ORT_LIB_PATH"); p != "" {
 				ort.SetSharedLibraryPath(p)
+			} else if p := findStdLib(); p != "" {
+				ort.SetSharedLibraryPath(p)
 			} else {
-				for _, c := range []string{
-					"/usr/lib/libonnxruntime.so",
-					"/usr/local/lib/libonnxruntime.so",
-					"./libonnxruntime.so",
-				} {
-					if _, err := os.Stat(c); err == nil {
-						ort.SetSharedLibraryPath(c)
-						break
-					}
+				p, err := extractLib()
+				if err != nil {
+					envErr = err
+					return
 				}
+				ort.SetSharedLibraryPath(p)
 			}
 			envErr = ort.InitializeEnvironment()
 		}
 	})
 	return envErr
+}
+
+func findStdLib() string {
+	for _, c := range []string{
+		"/usr/lib/libonnxruntime.so",
+		"/usr/local/lib/libonnxruntime.so",
+		"./libonnxruntime.so",
+	} {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return ""
+}
+
+// extractLib writes the bundled libonnxruntime.so to the cache dir and
+// returns its path. Subsequent runs reuse the cached copy.
+func extractLib() (string, error) {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		base = os.TempDir()
+	}
+	dir := filepath.Join(base, "indra-ocr", "lib")
+	dst := filepath.Join(dir, "libonnxruntime.so")
+	if _, err := os.Stat(dst); err != nil {
+		data, err := libFS.ReadFile("lib/libonnxruntime.so")
+		if err != nil {
+			return "", fmt.Errorf("indra: embedded libonnxruntime: %w", err)
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+		tmp := dst + ".part"
+		if err := os.WriteFile(tmp, data, 0o755); err != nil {
+			return "", err
+		}
+		if err := os.Rename(tmp, dst); err != nil {
+			return "", err
+		}
+	}
+	return dst, nil
 }
 
 // Sessions holds the model sessions. Mirrors OrtOCR.__init__ model set.
