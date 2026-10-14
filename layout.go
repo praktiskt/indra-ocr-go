@@ -172,7 +172,8 @@ func isListItem(t string) bool {
 			}
 		}
 	}
-	// (1) / 1. / 1) / a. prefixes
+	// (1) / 1. / 1) / a. prefixes: delimiter must end the token
+	// or be followed by whitespace ("12.5" is not a list marker).
 	i := 0
 	if i < len(s) && s[i] == '(' {
 		i++
@@ -182,12 +183,20 @@ func isListItem(t string) bool {
 		d++
 	}
 	if d > 0 && i+d < len(s) && (s[i+d] == '.' || s[i+d] == ')') {
-		return true
+		if endsToken(s, i+d+1) {
+			return true
+		}
 	}
 	if len(s) >= 2 && isASCIILetter(rune(s[0])) && (s[1] == '.' || s[1] == ')') {
-		return true
+		if endsToken(s, 2) {
+			return true
+		}
 	}
 	return false
+}
+
+func endsToken(s string, i int) bool {
+	return i >= len(s) || s[i] == ' ' || s[i] == '\t'
 }
 
 // TableHTML builds an HTML table from cell lines. Port of table_html.
