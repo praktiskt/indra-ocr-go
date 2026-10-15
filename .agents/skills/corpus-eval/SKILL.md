@@ -4,8 +4,8 @@ description: >
   Broad quality evaluation for indra-ocr-go performance work. Scores word recall
   over a 199-page FUNSD corpus instead of the 4 testdata pages, so perf changes
   can't silently overfit a narrow sample. Use when touching detection sides,
-  adaptive passes, skew/orient preprocessing, batching, or asking "is this safe
-  on broad data". Also covers the A/B procedure for numeric changes, the
+  adaptive passes, skew/orient preprocessing, batching, or concurrency/pipelining,
+  or asking "is this safe on broad data". Also covers the A/B procedure for numeric changes, the
   settled-decisions log, and the 150-page brutal-print gauntlet (receipts,
   multilingual forms, synthetic degrade/photo).
 ---
@@ -55,6 +55,12 @@ Below bar = real regression, not refactor noise. ~16s runtime.
    - Neutral recall + faster: accept, note divergent-page count in commit msg.
 4. Revert all temp knobs before commit. `git diff` must show only the
    intended change. No permanent hidden env kill-switches.
+
+Changes that only reorder/overlap work with no numeric effect (scheduling,
+concurrency, session partitioning) skip steps 1-3's divergence harness: prove
+output is bit-identical (equivalence test, e.g. `TestCallAllMatchesCall`, run
+`-race`) plus recall parity on the guard. Bit-identical output also waives the
+gauntlet and the cord-photo orient check.
 
 Quick divergence harness pattern (throwaway `_test.go`, never commit):
 
@@ -137,6 +143,24 @@ Failure classes mapped (eyeballed dumps):
 - Parallel rec sessions: rejected. Rec saturates cores at 8 threads;
   16-thread single-session run collapses 248ms -> 681ms. More sessions =
   more contention for uncertain gain.
+- Rec int8 static quant: rejected. Best config (`rec_static_int8.onnx`:
+  QDQ per-channel weights, QUInt8, act-symmetric, corpus-diverse calibration)
+  = 1.25x rec (364 vs 456 ms) but corpus recall 0.8538 vs 0.8616 (-0.78pp,
+  12 pages >5pp worse). No layer exclusion / reduce_range / calibration set
+  recovered recall (exclusions non-monotonic). QOperator, dynamic-quant
+  (3x slower), onnx-simplify (no-op) all worse. Entropy/Percentile cal OOMs
+  (ORT collectors retain raw activations; cal max batch 51 x width 1600).
+  Ceiling ~1.25x: 52 Conv / 0 MatMul + DQ/Q overhead on unquantizable
+  pointwise ops (Zen4 has avx512_vnni). Don't retry without a new scheme
+  (per-channel activations, mixed precision on stem/head).
+- Pipeline overlap: accepted. `OCR.CallAll`/`Pool.CallAll` run per-page stages
+  (orient+det / rec / assemble) as a 3-stage goroutine pipeline, one page per
+  stage, sessions partitioned by stage. Output bit-identical to per-page `Call`
+  (DeepEqual, threads=1; `-race` clean), corpus neutral 0.8616. Single handle
+  +1.36-1.43x pages/s (1t 5.6->7.6, 4t 9.2->13.2); pool reaches machine peak
+  (~18 p/s) with 4-6 workers vs 8-12 (fewer session sets). This is *stage*
+  overlap, NOT parallel rec sessions (see above) - only one page is in rec
+  at a time.
 - Incremental warp walks: `sharpRows`/`rotateRows`/`resizeLinearRows`
   advance coords by addition instead of recomputing per pixel. Tilt sweep
   13/13 identical to 1e-4deg; rec texts bit-identical on 4 testdata pages;
@@ -160,6 +184,9 @@ Failure classes mapped (eyeballed dumps):
 - Numeric changes (resize, search schedules, thresholds) need A/B proof of
   identical-or-neutral output, not just "tests pass".
 - 4 testdata pages are smoke only. Corpus decides.
+- Concurrency: ORT sessions are NOT safe for concurrent `Run`. Every parallel
+  path must give each concurrent Run its own session set, and prove
+  bit-identical output (`-race` test) + recall parity, not just "tests pass".
 - Orient/threshold changes must ALSO pass the cord photo subset (known
   `rot=180` false positive on dark-background receipts) plus the FUNSD guard.
 - Downstream users of the gauntlet: GT-sparse sroie rows and joined-token
