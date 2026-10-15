@@ -98,7 +98,7 @@ log aggregate + worst-5, dump per-page JSON beside the scratch data.
 Single-page dump pattern (throwaway, `HARD_DUMP=sub/page`): print
 `lines/rot/skew + Markdown` for eyeballing failures.
 
-Reference scores (threads=2, main @ `2cd25cb`):
+Reference scores (threads=2):
 
 | subset | recall | avg ms |
 |---|---|---|
@@ -106,12 +106,10 @@ Reference scores (threads=2, main @ `2cd25cb`):
 | sroie | 0.8309 | 707 |
 | funsd-degraded | 0.7848 | 671 |
 | funsd-photo | 0.7579 | 655 |
-| cord | 0.6810 | 272 |
+| cord | 0.7055 | 272 |
 
-Post-orient-fix (`12655fb`, v0.10.0) cord = 0.7055; other subsets unchanged.
-Re-verified 0.9411/0.8309/0.7848/0.7579 on the pipeline change (`a0ddd4d`),
-cord 0.7055 — bit-identical stage overlap moved nothing but wall time
-(avg ms ~15% lower, machine-state variance exceeds any effect here).
+Compare current runs against recall; `avg ms` is a rough guide (machine and
+thermal state move it ~20%).
 
 Known caveats (don't "fix" these as pipeline bugs without checking):
 - sroie worst-list dominated by GT-sparse rows (denominators <=17);
