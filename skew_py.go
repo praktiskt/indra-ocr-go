@@ -2,8 +2,6 @@ package indra
 
 import (
 	"math"
-	"runtime"
-	"sync"
 )
 
 // sharpRowsDark fuses rotate + row-sum sharpness where out-of-source samples
@@ -74,18 +72,9 @@ func EstimateSkewPy(g *Gray) float64 {
 	}
 	evalAngles := func(angles []float64, fn func(a float64) float64) []float64 {
 		vals := make([]float64, len(angles))
-		var wg sync.WaitGroup
-		sem := make(chan struct{}, runtime.NumCPU())
 		for i, a := range angles {
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(i int, a float64) {
-				defer wg.Done()
-				vals[i] = fn(a)
-				<-sem
-			}(i, a)
+			vals[i] = fn(a)
 		}
-		wg.Wait()
 		return vals
 	}
 	// Python coarse grid: 0.5-degree steps over [-5, 5].
