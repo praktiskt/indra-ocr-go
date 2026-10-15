@@ -13,8 +13,11 @@ import (
 const (
 	// MinConf drops line text under this mean CTC peak probability (box stays).
 	MinConf = 0.5
-	// OrientMin applies a turn only above this probability.
-	OrientMin = 0.95
+	// OrientMin applies a turn only above this probability. Photo receipts
+	// with dark borders confuse orient.onnx into mid-confidence votes
+	// (e.g. 0.954 for 180deg on an upright photo); true rotations score
+	// >=0.998, so the bar sits between them.
+	OrientMin = 0.98
 	// SplitGap cuts a detected line at wider gaps; CellGap splits table cells.
 	SplitGap = 3.0
 	CellGap  = 1.8
