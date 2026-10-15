@@ -64,7 +64,7 @@ func EstimateSkewPy(g *Gray) float64 {
 	// tie flips); the decisive fine search runs stride 1 at full resolution.
 	sharp := func(a float64) float64 {
 		rad := a * math.Pi / 180
-		return sharpRows(sm.Pix, sm.W, sm.H, math.Cos(rad), math.Sin(rad), cx, cy)
+		return sharpRowsStride(sm.Pix, sm.W, sm.H, math.Cos(rad), math.Sin(rad), cx, cy, 2)
 	}
 	sharpCoarse := func(a float64) float64 {
 		rad := a * math.Pi / 180
