@@ -378,12 +378,45 @@ func PageToInput(g *Gray, longSide int) (ink []float32, pw, ph int, scale float6
 	pw = ((nw + inputMultiple - 1) / inputMultiple) * inputMultiple
 	ph = ((nh + inputMultiple - 1) / inputMultiple) * inputMultiple
 	ink = make([]float32, pw*ph) // zero = paper
-	for y := 0; y < nh; y++ {
-		for x := 0; x < nw; x++ {
-			ink[y*pw+x] = 1 - float32(rs.Pix[y*rs.W+x])/255
-		}
-	}
+	fillInk(ink, pw, rs.Pix, rs.W, nw, nh)
 	return ink, pw, ph, scale
+}
+
+// fillInk writes the ink map (1-p/255) for the nw x nh top-left region.
+// Rows are independent; sharded across CPUs for page-sized inputs.
+func fillInk(ink []float32, pw int, src []uint8, sw, nw, nh int) {
+	if nh < 256 {
+		for y := 0; y < nh; y++ {
+			ou, iu := y*pw, y*sw
+			for x := 0; x < nw; x++ {
+				ink[ou+x] = 1 - float32(src[iu+x])/255
+			}
+		}
+		return
+	}
+	workers := runtime.NumCPU()
+	if workers > nh {
+		workers = nh
+	}
+	var wg sync.WaitGroup
+	rowsPer := (nh + workers - 1) / workers
+	for wi := 0; wi < workers; wi++ {
+		y0, y1 := wi*rowsPer, min(nh, (wi+1)*rowsPer)
+		if y0 >= y1 {
+			break
+		}
+		wg.Add(1)
+		go func(y0, y1 int) {
+			defer wg.Done()
+			for y := y0; y < y1; y++ {
+				ou, iu := y*pw, y*sw
+				for x := 0; x < nw; x++ {
+					ink[ou+x] = 1 - float32(src[iu+x])/255
+				}
+			}
+		}(y0, y1)
+	}
+	wg.Wait()
 }
 
 // Line crop geometry, port of rec_preproc.py.
@@ -499,11 +532,7 @@ func OrientInput(g *Gray, side int) []float32 {
 	nh := max(1, int(math.Round(float64(g.H)*s)))
 	sm := g.ResizeArea(nw, nh)
 	out := make([]float32, side*side)
-	for y := 0; y < nh; y++ {
-		for x := 0; x < nw; x++ {
-			out[y*side+x] = 1 - float32(sm.Pix[y*sm.W+x])/255
-		}
-	}
+	fillInk(out, side, sm.Pix, sm.W, nw, nh)
 	return out
 }
 

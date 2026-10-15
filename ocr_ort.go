@@ -403,12 +403,15 @@ func (o *OCR) readingOrder(boxes [][4]float64, texts []string, wh [2]float64) ([
 }
 
 func reshape2(f []float32, r, c int) [][]float64 {
+	flat := make([]float64, r*c)
 	m := make([][]float64, r)
 	for i := range m {
-		m[i] = make([]float64, c)
-		for j := 0; j < c && i*c+j < len(f); j++ {
-			m[i][j] = float64(f[i*c+j])
+		row := flat[i*c : (i+1)*c]
+		base := i * c
+		for j := 0; j < c && base+j < len(f); j++ {
+			row[j] = float64(f[base+j])
 		}
+		m[i] = row
 	}
 	return m
 }

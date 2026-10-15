@@ -26,14 +26,9 @@ func DecodeDet(out []float32, h, w int) []DetBox {
 	core := out[:h*w]
 	top := out[h*w : 2*h*w]
 	bot := out[2*h*w : 3*h*w]
-	// Foreground <=> sigmoid(core) > 0.5 <=> core > 0. No exp needed.
-	mask := make([]bool, h*w)
-	for i, v := range core {
-		if v > 0 {
-			mask[i] = true
-		}
-	}
-	lab, n := connectedComponents(mask, h, w)
+	// Foreground <=> sigmoid(core) > 0.5 <=> core > 0. Labeled in one
+	// union-find pass over core directly: no mask array, no Exp here.
+	lab, n := labelForeground(core, h, w)
 	if n == 0 {
 		return nil
 	}
@@ -94,52 +89,72 @@ func DecodeDet(out []float32, h, w int) []DetBox {
 	return boxes
 }
 
-// connectedComponents labels 4-connected true pixels, returns labels + count.
-func connectedComponents(mask []bool, h, w int) ([]int, int) {
-	lab := make([]int, h*w)
-	count := 0
-	stack := make([]int, 0, 64)
-	for i := 0; i < h*w; i++ {
-		if !mask[i] || lab[i] != 0 {
-			continue
+// labelForeground labels 4-connected core>0 pixels with two-pass union-find.
+// Streaming raster order: no mask array, no stack. Returns int32 labels + count.
+func labelForeground(core []float32, h, w int) ([]int32, int) {
+	lab := make([]int32, h*w)
+	parent := make([]int32, 1, 256) // parent[0] unused; index = provisional label
+	find := func(x int32) int32 {
+		for parent[x] != x {
+			parent[x] = parent[parent[x]]
+			x = parent[x]
 		}
-		count++
-		lab[i] = count
-		stack = stack[:0]
-		stack = append(stack, i)
-		for len(stack) > 0 {
-			p := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			px, py := p%w, p/w
-			if px > 0 {
-				q := p - 1
-				if mask[q] && lab[q] == 0 {
-					lab[q] = count
-					stack = append(stack, q)
-				}
+		return x
+	}
+	var cnt int32
+	for y := 0; y < h; y++ {
+		row := y * w
+		for x := 0; x < w; x++ {
+			idx := row + x
+			if core[idx] <= 0 {
+				continue
 			}
-			if px+1 < w {
-				q := p + 1
-				if mask[q] && lab[q] == 0 {
-					lab[q] = count
-					stack = append(stack, q)
-				}
+			var left, up int32
+			if x > 0 {
+				left = lab[idx-1]
 			}
-			if py > 0 {
-				q := p - w
-				if mask[q] && lab[q] == 0 {
-					lab[q] = count
-					stack = append(stack, q)
-				}
+			if y > 0 {
+				up = lab[idx-w]
 			}
-			if py+1 < h {
-				q := p + w
-				if mask[q] && lab[q] == 0 {
-					lab[q] = count
-					stack = append(stack, q)
+			switch {
+			case left == 0 && up == 0:
+				cnt++
+				parent = append(parent, cnt)
+				lab[idx] = cnt
+			case up == 0:
+				lab[idx] = left
+			case left == 0:
+				lab[idx] = up
+			default:
+				rl, ru := find(left), find(up)
+				if rl != ru {
+					if rl > ru {
+						rl, ru = ru, rl
+					}
+					parent[ru] = rl
 				}
+				lab[idx] = rl
 			}
 		}
 	}
-	return lab, count
+	if cnt == 0 {
+		return lab, 0
+	}
+	// Flatten roots to compact 1..n ids.
+	remap := make([]int32, cnt+1)
+	var n int32
+	for i := range lab {
+		if lab[i] == 0 {
+			continue
+		}
+		r := find(lab[i])
+		id := remap[r]
+		if id == 0 {
+			n++
+			id = n
+			remap[r] = id
+		}
+		lab[i] = id
+	}
+	return lab, int(n)
 }
