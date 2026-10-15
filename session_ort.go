@@ -189,7 +189,7 @@ func NewSessionsWithThreads(tc Threads) (*Sessions, error) {
 		s.Close()
 		return nil, fmt.Errorf("indra: rec: %w", err)
 	}
-	if s.Order, err = mkWith("order.onnx", []string{"feats", "mask"}, []string{"a", "cls", "same", "tab"}, tc.Order); err != nil {
+	if s.Order, err = mkWith("order.onnx", []string{"feats", "mask"}, []string{"a", "cls", "same"}, tc.Order); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("indra: order: %w", err)
 	}
@@ -321,12 +321,10 @@ func (s *Sessions) RunOrder(feats []float32, n int) (*OrderOut, error) {
 		return nil, err
 	}
 	defer same.Destroy()
-	tab, err := ort.NewEmptyTensor[float32](ort.Shape{1, 3, int64(n), int64(n)})
-	if err != nil {
-		return nil, err
-	}
-	defer tab.Destroy()
-	if err := s.Order.Run([]ort.Value{f, mk}, []ort.Value{a, cls, same, tab}); err != nil {
+	// NOTE: order.onnx also produces a "tab" [1,3,N,N] head, but the Go
+	// port renders tables geometrically and never reads it. Only the
+	// needed outputs are fetched so ORT can prune the tab head.
+	if err := s.Order.Run([]ort.Value{f, mk}, []ort.Value{a, cls, same}); err != nil {
 		return nil, err
 	}
 	return &OrderOut{
