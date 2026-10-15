@@ -174,8 +174,31 @@ func (g *Gray) ResizeArea(nw, nh int) *Gray {
 	src := g.Pix
 	sw := g.W
 	sh := g.H
-	// Precompute x weights per dst column: [x0, x1) source span.
-	// Small widths: sequential to avoid goroutine overhead.
+	// X source spans depend only on the column: precompute once so the
+	// per-row worker does not redo them for every y (identical values).
+	xx0s := make([]int, nw)
+	xx1s := make([]int, nw)
+	sx0s := make([]float64, nw)
+	sx1s := make([]float64, nw)
+	for x := 0; x < nw; x++ {
+		sx0 := float64(x) * sx
+		sx1 := float64(x+1) * sx
+		xx0 := int(sx0)
+		xx1 := int(sx1)
+		if float64(xx1) < sx1 {
+			xx1++
+		}
+		if xx0 < 0 {
+			xx0 = 0
+		}
+		if xx1 > sw {
+			xx1 = sw
+		}
+		xx0s[x], xx1s[x] = xx0, xx1
+		sx0s[x], sx1s[x] = sx0, sx1
+	}
+	// Shard rows across CPUs for page-sized inputs.
+	// Small heights: sequential to avoid goroutine overhead.
 	if nh >= 256 {
 		workers := runtime.NumCPU()
 		if workers > nh {
@@ -191,17 +214,17 @@ func (g *Gray) ResizeArea(nw, nh int) *Gray {
 			wg.Add(1)
 			go func(y0, y1 int) {
 				defer wg.Done()
-				resizeAreaRows(src, sw, sh, out, nw, y0, y1, sx, sy)
+				resizeAreaRows(src, sw, sh, out, nw, y0, y1, sy, sx0s, sx1s, xx0s, xx1s)
 			}(y0, y1)
 		}
 		wg.Wait()
 		return &Gray{Pix: out, W: nw, H: nh}
 	}
-	resizeAreaRows(src, sw, sh, out, nw, 0, nh, sx, sy)
+	resizeAreaRows(src, sw, sh, out, nw, 0, nh, sy, sx0s, sx1s, xx0s, xx1s)
 	return &Gray{Pix: out, W: nw, H: nh}
 }
 
-func resizeAreaRows(src []uint8, sw, sh int, out []uint8, nw, y0, y1 int, sx, sy float64) {
+func resizeAreaRows(src []uint8, sw, sh int, out []uint8, nw, y0, y1 int, sy float64, sx0s, sx1s []float64, xx0s, xx1s []int) {
 	for y := y0; y < y1; y++ {
 		sy0 := float64(y) * sy
 		sy1 := float64(y+1) * sy
@@ -218,19 +241,8 @@ func resizeAreaRows(src []uint8, sw, sh int, out []uint8, nw, y0, y1 int, sx, sy
 		}
 		ou := y * nw
 		for x := 0; x < nw; x++ {
-			sx0 := float64(x) * sx
-			sx1 := float64(x+1) * sx
-			xx0 := int(sx0)
-			xx1 := int(sx1)
-			if float64(xx1) < sx1 {
-				xx1++
-			}
-			if xx0 < 0 {
-				xx0 = 0
-			}
-			if xx1 > sw {
-				xx1 = sw
-			}
+			sx0, sx1 := sx0s[x], sx1s[x]
+			xx0, xx1 := xx0s[x], xx1s[x]
 			sum, wsum := 0.0, 0.0
 			for yy := yy0; yy < yy1; yy++ {
 				oy0 := sy0
@@ -578,10 +590,9 @@ func rotateRows(src []uint8, w, h int, out []uint8, y0, y1 int, cos, sin, cx, cy
 	for y := y0; y < y1; y++ {
 		dy := float64(y) - cy
 		ou := y * w
+		sxf := cos*(-cx) - sin*dy + cx
+		syf := sin*(-cx) + cos*dy + cy
 		for x := 0; x < w; x++ {
-			dx := float64(x) - cx
-			sxf := cos*dx - sin*dy + cx
-			syf := sin*dx + cos*dy + cy
 			x0 := int(math.Floor(sxf))
 			y0i := int(math.Floor(syf))
 			fx, fy := sxf-float64(x0), syf-float64(y0i)
@@ -614,12 +625,17 @@ func rotateRows(src []uint8, w, h int, out []uint8, y0, y1 int, cos, sin, cx, cy
 			c := float64(src[yb*w+xa])
 			d := float64(src[yb*w+xb])
 			out[ou+x] = uint8(a*wx0*wy0 + b*wx1*wy0 + c*wx0*wy1 + d*wx1*wy1 + 0.5)
+			sxf += cos
+			syf += sin
 		}
 	}
 }
 
 // sharpRows fuses RotatePage + row-sum sharpness: no output image alloc.
 // tot = sum_y (rowsum[y]-rowsum[y-1])^2 where rowsum uses ink=(255-v)/255.
+// Warp coordinates advance incrementally along x (sxf += cos, syf += sin):
+// 2 adds/px instead of 4 muls+4 adds. Starts exact per row; drift over a
+// row is ~1e-11px, far below the Floor pixel boundary.
 func sharpRows(src []uint8, w, h int, cos, sin, cx, cy float64) float64 {
 	sums := make([]float64, h)
 	inv := 1.0 / 255.0
@@ -627,10 +643,9 @@ func sharpRows(src []uint8, w, h int, cos, sin, cx, cy float64) float64 {
 	for y := 0; y < h; y++ {
 		dy := float64(y) - cy
 		s := 0.0
+		sxf := cos*(-cx) - sin*dy + cx
+		syf := sin*(-cx) + cos*dy + cy
 		for x := 0; x < w; x++ {
-			dx := float64(x) - cx
-			sxf := cos*dx - sin*dy + cx
-			syf := sin*dx + cos*dy + cy
 			x0 := int(math.Floor(sxf))
 			y0i := int(math.Floor(syf))
 			fx, fy := sxf-float64(x0), syf-float64(y0i)
@@ -658,6 +673,8 @@ func sharpRows(src []uint8, w, h int, cos, sin, cx, cy float64) float64 {
 			d := float64(src[yb*w+xb])
 			v := a*wx0*wy0 + b*wx1*wy0 + c*wx0*wy1 + d*wx1*wy1
 			s += 255 - v
+			sxf += cos
+			syf += sin
 		}
 		sums[y] = s * inv
 	}
