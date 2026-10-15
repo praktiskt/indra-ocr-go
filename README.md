@@ -131,6 +131,15 @@ each: throughput plateaus by then, and each extra worker costs a handle
 |----------|-------------|
 | `ORT_LIB_PATH` | Path to libonnxruntime shared library (overrides bundled libs) |
 
+### Optional SIMD builds
+
+Building with `GOEXPERIMENT=simd` (Go 1.27+) replaces the per-pixel ink
+conversions (`fillInk` and `CropLine`'s ink map) with AVX-512 fast paths.
+They are bit-identical to the scalar results on every corpus page; without
+the experiment the library compiles and runs the scalar code. `Pool` also
+gains `CallFiles(paths)`: parallel file decode feeding the pipelined pool,
+the full equivalent of the reference `convert_many`.
+
 ## License
 
 Code Apache-2.0. Models [OpenRAIL-M](LICENSE-MODELS). Bundled native libs [MIT / GPLv3+Runtime Exception](LICENSE-LIBS).
