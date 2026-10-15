@@ -340,8 +340,10 @@ func resizeLinearRows(src []uint8, sw, sh int, out []uint8, nw, y0, y1 int, sx, 
 		}
 		ou := y * nw
 		wy0, wy1 := 1-dy, dy
+		// fx advances by sx per x step: 1 add/px instead of mult+adds.
+		// Starts exact; drift ~1e-12px over a line width, far below Floor.
+		fx := 0.5*sx - 0.5
 		for x := 0; x < nw; x++ {
-			fx := (float64(x)+0.5)*sx - 0.5
 			x0i := int(math.Floor(fx))
 			dx := fx - float64(x0i)
 			if x0i < 0 {
@@ -358,6 +360,7 @@ func resizeLinearRows(src []uint8, sw, sh int, out []uint8, nw, y0, y1 int, sx, 
 			d := float64(src[r1+x0i+boolToInt(x0i+1 < sw)])
 			wx0, wx1 := 1-dx, dx
 			out[ou+x] = uint8(a*wx0*wy0 + b*wx1*wy0 + c*wx0*wy1 + d*wx1*wy1 + 0.5)
+			fx += sx
 		}
 	}
 }
