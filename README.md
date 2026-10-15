@@ -107,6 +107,7 @@ each: throughput plateaus by then, and each extra worker costs a handle
 | `AutoWorkers()` | Default worker count (NumCPU/2) |
 | `PerHandleBytes` | Estimated resident memory per worker (budget unit) |
 | `(*Pool).CallAll(pages)` | Batch OCR across pool workers, pipelined within each |
+| `(*Pool).CallFiles(paths)` | Read+decode files in parallel, OCR over the pool (paths -> pages) |
 | `VocabFromJSON(s)` | Parse vocabulary JSON |
 | `NewVocab(chars)` | Create vocabulary |
 | `DecodeDet(out, h, w)` | Decode detector output |

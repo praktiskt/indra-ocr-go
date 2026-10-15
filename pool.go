@@ -4,6 +4,11 @@
 package indra
 
 import (
+	"bytes"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
+	"os"
 	"runtime"
 	"sync"
 )
@@ -182,6 +187,79 @@ func (p *Pool) CallAll(gs []*Gray) []*Page {
 	}
 	wg.Wait()
 	return out
+}
+
+// CallFiles reads and decodes image files and OCRs them over the pool, like
+// the reference convert_many(paths): callers pass paths, not decoded pages.
+// Chunks of 2*workers pages are decoded in parallel, so decoding overlaps OCR
+// and peak memory stays at one chunk of pages. Results keep input order; work
+// stops at the first error.
+func (p *Pool) CallFiles(paths []string) ([]*Page, error) {
+	out := make([]*Page, len(paths))
+	n := len(paths)
+	if n == 0 {
+		return out, nil
+	}
+	chunk := 4 * p.Workers
+	if chunk < 1 {
+		chunk = 1
+	}
+	gs := make([]*Gray, n)
+	var firstErr error
+	var errMu sync.Mutex
+	fail := func(err error) {
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		errMu.Unlock()
+	}
+	// Decode chunk 0, then overlap: each chunk's OCR runs while chunk +1
+	// decodes (bounded at two chunks of pages in memory). Set-order result.
+	chunks := (n + chunk - 1) / chunk
+
+	asyncDecode := func(k int, dst chan error) {
+		lo, hi := k*chunk, min((k+1)*chunk, n)
+		go func() {
+			var wg sync.WaitGroup
+			for i := lo; i < hi; i++ {
+				wg.Add(1)
+				go func(i int) {
+					defer wg.Done()
+					data, err := os.ReadFile(paths[i])
+					var img image.Image
+					if err == nil {
+						img, _, err = image.Decode(bytes.NewReader(data))
+					}
+					if err != nil {
+						fail(err)
+						return
+					}
+					gs[i] = FromImage(img)
+				}(i)
+			}
+			wg.Wait()
+			errMu.Lock()
+			dst <- firstErr
+			errMu.Unlock()
+		}()
+	}
+	cur := make(chan error, 1)
+	asyncDecode(0, cur)
+	for k := 0; k < chunks; k++ {
+		if err := <-cur; err != nil {
+			return nil, err
+		}
+		var next chan error
+		if k+1 < chunks {
+			next = make(chan error, 1)
+			asyncDecode(k+1, next)
+		}
+		lo, hi := k*chunk, min((k+1)*chunk, n)
+		copy(out[lo:hi], p.CallAll(gs[lo:hi]))
+		cur = next
+	}
+	return out, nil
 }
 
 // Close releases all sessions.
