@@ -108,6 +108,11 @@ Reference scores (threads=2, main @ `2cd25cb`):
 | funsd-photo | 0.7579 | 655 |
 | cord | 0.6810 | 272 |
 
+Post-orient-fix (`12655fb`, v0.10.0) cord = 0.7055; other subsets unchanged.
+Re-verified 0.9411/0.8309/0.7848/0.7579 on the pipeline change (`a0ddd4d`),
+cord 0.7055 — bit-identical stage overlap moved nothing but wall time
+(avg ms ~15% lower, machine-state variance exceeds any effect here).
+
 Known caveats (don't "fix" these as pipeline bugs without checking):
 - sroie worst-list dominated by GT-sparse rows (denominators <=17);
   the enriched `ocr` field is entity-lean on some rows. OCR itself reads
