@@ -1,4 +1,5 @@
-// Model metadata parsing. Models are embedded via embed.go.
+// Model metadata parsing. Models (datalab-to/indra-ocr v3.1) are
+// embedded via embed.go; nothing is downloaded at runtime.
 package indra
 
 import (
@@ -6,18 +7,12 @@ import (
 	"fmt"
 )
 
-// HFRepo and HFRevision pin the weights this port was built against.
-const (
-	HFRepo     = "datalab-to/indra-ocr"
-	HFRevision = "v3.1"
-)
-
 // Meta holds det_long_side, rec_height and the vocabs from meta.json.
 type Meta struct {
 	DetLongSide int
 	RecHeight   int
 	Vocab       *Vocab
-	VocabCJK    *Vocab // nil when the folder has no CJK models
+	VocabCJK    *Vocab // parsed for completeness; CJK routing not implemented
 }
 
 // ParseMeta parses meta.json content.

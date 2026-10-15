@@ -5,13 +5,6 @@ package indra
 #cgo LDFLAGS: -ldl
 #include <dlfcn.h>
 #include <stdlib.h>
-
-// preload_lib dlopens path; returns NULL on success or dlerror() text.
-static const char* preload_lib(const char* path) {
-	void* h = dlopen(path, RTLD_LAZY | RTLD_GLOBAL);
-	if (h != NULL) return NULL;
-	return dlerror();
-}
 */
 import "C"
 
@@ -30,22 +23,18 @@ var (
 	envErr  error
 )
 
-// InitLib loads libonnxruntime from ORT_LIB_PATH, a standard
-// location, or the bundled embedded copy. Embedded libs are
-// loaded via anonymous memfd: nothing is written to disk.
-// Call once before NewSessions.
+// InitLib loads libonnxruntime from ORT_LIB_PATH or the bundled
+// embedded copy. Embedded libs load via anonymous memfd: nothing
+// is written to disk. NewSessions calls it for you; call directly
+// only to fail fast on load. Safe for concurrent use.
 func InitLib() error {
 	envOnce.Do(func() {
 		if !ort.IsInitialized() {
 			if p := os.Getenv("ORT_LIB_PATH"); p != "" {
 				ort.SetSharedLibraryPath(p)
-			} else if p := findStdLib(); p != "" {
-				ort.SetSharedLibraryPath(p)
-			} else {
-				if err := loadEmbeddedLibs(); err != nil {
-					envErr = err
-					return
-				}
+			} else if err := loadEmbeddedLibs(); err != nil {
+				envErr = err
+				return
 			}
 			envErr = ort.InitializeEnvironment()
 		}
@@ -53,22 +42,18 @@ func InitLib() error {
 	return envErr
 }
 
-func findStdLib() string {
-	for _, c := range []string{
-		"/usr/lib/libonnxruntime.so",
-		"/usr/local/lib/libonnxruntime.so",
-		"./libonnxruntime.so",
-	} {
-		if _, err := os.Stat(c); err == nil {
-			return c
-		}
-	}
-	return ""
-}
-
 // memfdFDs keeps the anonymous fds alive for the process
 // lifetime; the loader may map from them lazily.
-var memfdFDs []int
+var memfdFDs []uintptr
+
+func dlopenMemfd(f, path string) error {
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+	if C.dlopen(cpath, C.RTLD_LAZY|C.RTLD_GLOBAL) == nil {
+		return fmt.Errorf("indra: load %s: %s", f, C.GoString(C.dlerror()))
+	}
+	return nil
+}
 
 // loadEmbeddedLibs dlopens the bundled libgcc_s, libstdc++
 // and libonnxruntime from anonymous memory (memfd), so the
@@ -90,17 +75,16 @@ func loadEmbeddedLibs() error {
 		if errno != 0 {
 			return fmt.Errorf("indra: memfd %s: %w", f, errno)
 		}
-		memfdFDs = append(memfdFDs, int(fd))
 		if err := writeAll(int(fd), data); err != nil {
+			syscall.Close(int(fd))
 			return fmt.Errorf("indra: memfd %s: %w", f, err)
 		}
-		path := fmt.Sprintf("/proc/self/fd/%d", fd)
-		cpath := C.CString(path)
-		msg := C.preload_lib(cpath)
-		C.free(unsafe.Pointer(cpath))
-		if msg != nil {
-			return fmt.Errorf("indra: load %s: %s", f, C.GoString(msg))
+		path := "/proc/self/fd/" + itoa(int(fd))
+		if err := dlopenMemfd(f, path); err != nil {
+			syscall.Close(int(fd))
+			return err
 		}
+		memfdFDs = append(memfdFDs, fd)
 		if f == "libonnxruntime.so" {
 			ortPath = path
 		}
@@ -120,14 +104,12 @@ func writeAll(fd int, data []byte) error {
 	return nil
 }
 
-// Sessions holds the model sessions. Mirrors OrtOCR.__init__ model set.
+// Sessions holds the model sessions.
 type Sessions struct {
 	Det    *ort.DynamicAdvancedSession
 	Rec    *ort.DynamicAdvancedSession
 	Order  *ort.DynamicAdvancedSession
-	Orient *ort.DynamicAdvancedSession // nil when absent
-
-	Threads int
+	Orient *ort.DynamicAdvancedSession
 }
 
 func newOptions(threads int) (*ort.SessionOptions, error) {
@@ -164,7 +146,7 @@ func NewSessions(threads int) (*Sessions, error) {
 		}
 		return ort.NewDynamicAdvancedSessionWithONNXData(data, in, out, o)
 	}
-	s := &Sessions{Threads: threads}
+	s := &Sessions{}
 	if s.Det, err = mk("det.onnx", []string{"x"}, []string{"out"}); err != nil {
 		return nil, fmt.Errorf("indra: det: %w", err)
 	}

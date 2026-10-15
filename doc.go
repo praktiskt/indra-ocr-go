@@ -6,7 +6,9 @@
 // Datalab's modified OpenRAIL-M license (see LICENSE-MODELS), the code is
 // Apache-2.0.
 //
-// Models are embedded via go:embed, no download required.
+// Models (datalab-to/indra-ocr v3.1) and native libs are embedded:
+// linux/amd64 needs no installs, no downloads, no disk writes.
+// Other platforms must provide libonnxruntime via ORT_LIB_PATH.
 //
-// Requires CGO and libonnxruntime (see session_ort.go).
+// Requires CGO.
 package indra

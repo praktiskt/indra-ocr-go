@@ -32,12 +32,7 @@ import (
 )
 
 func main() {
-    // Initialize ONNX Runtime
-    if err := indra.InitLib(); err != nil {
-        panic(err)
-    }
-
-    // Create OCR pipeline (models embedded, no download needed)
+    // Create OCR pipeline (models and native libs embedded)
     ocr, err := indra.NewOCR(4)
     if err != nil {
         panic(err)
@@ -49,7 +44,7 @@ func main() {
     img, _, _ := image.Decode(f)
     f.Close()
 
-    gray := indra.FromRGBA(img.(*image.RGBA))
+    gray := indra.FromImage(img)
 
     // Run OCR
     page := ocr.Call(gray)
@@ -86,7 +81,8 @@ page := pool.Call(gray)
 | `PageMarkdown(...)` | Generate markdown |
 | `TableHTML(boxes, texts)` | Generate table HTML |
 | `NewGray(px, w, h)` | Create grayscale image |
-| `FromRGBA(img)` | Convert RGBA to grayscale |
+| `FromImage(img)` | Convert any image.Image to grayscale |
+| `FromRGBA(img)` | Convert *image.RGBA to grayscale |
 | `PageToInput(g, longSide)` | Prepare detector input |
 | `CropLine(g, box, height)` | Crop line for recognizer |
 | `RotatePage(g, degrees)` | Rotate page |
@@ -96,7 +92,7 @@ page := pool.Call(gray)
 
 | Variable | Description |
 |----------|-------------|
-| `ORT_LIB_PATH` | Path to libonnxruntime shared library (skips standard search) |
+| `ORT_LIB_PATH` | Path to libonnxruntime shared library (overrides bundled libs) |
 
 ## License
 

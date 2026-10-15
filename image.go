@@ -18,6 +18,21 @@ type Gray struct {
 // NewGray wraps px (len W*H).
 func NewGray(px []uint8, w, h int) *Gray { return &Gray{Pix: px, W: w, H: h} }
 
+// FromImage converts any image.Image to gray (ITU-R 601 luma).
+// Use this for decoded files (JPEG decodes to YCbCr, not RGBA).
+func FromImage(img image.Image) *Gray {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	out := make([]uint8, w*h)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			r, g, bl, _ := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
+			out[y*w+x] = uint8((299*(r>>8) + 587*(g>>8) + 114*(bl>>8) + 500) / 1000)
+		}
+	}
+	return &Gray{Pix: out, W: w, H: h}
+}
+
 // FromRGBA converts an image.RGBA to gray (ITU-R 601 luma).
 func FromRGBA(img *image.RGBA) *Gray {
 	b := img.Bounds()

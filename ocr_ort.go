@@ -42,10 +42,9 @@ type Page struct {
 
 // OCR binds sessions + meta + vocab.
 type OCR struct {
-	S   *Sessions
-	M   *Meta
-	V   *Vocab
-	Dir string
+	S *Sessions
+	M *Meta
+	V *Vocab
 }
 
 // NewOCR opens sessions from embedded models.
