@@ -188,3 +188,33 @@ func TestExamplePages(t *testing.T) {
 		})
 	}
 }
+
+// Adaptive second-pass detection must recover small text pasted on a
+// large canvas (first pass alone finds <50 of 138 lines). Guards the
+// small-print path in Detect. Needs models + lib: INDRA_TEST_IMAGES=1.
+func TestAdaptiveSmallText(t *testing.T) {
+	if os.Getenv("INDRA_TEST_IMAGES") == "" {
+		t.Skip("INDRA_TEST_IMAGES not set")
+	}
+	if err := InitLib(); err != nil {
+		t.Fatalf("InitLib: %v", err)
+	}
+	ocr, err := NewOCR(2)
+	if err != nil {
+		t.Fatalf("NewOCR: %v", err)
+	}
+	defer ocr.Close()
+	g := loadTestGray(t, filepath.Join("testdata", "multi_column.png"))
+	big := &Gray{Pix: make([]uint8, 2700*3579), W: 2700, H: 3579}
+	for i := range big.Pix {
+		big.Pix[i] = 255
+	}
+	for y := 0; y < g.H; y++ {
+		copy(big.Pix[(y+1100)*2700+900:(y+1100)*2700+900+g.W], g.Pix[y*g.W:(y+1)*g.W])
+	}
+	p := ocr.Call(big)
+	t.Logf("small-text: lines=%d", len(p.Lines))
+	if len(p.Lines) < 100 {
+		t.Fatalf("adaptive pass lost small text: lines=%d, want >=100", len(p.Lines))
+	}
+}

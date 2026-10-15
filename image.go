@@ -671,7 +671,7 @@ func sharpRows(src []uint8, w, h int, cos, sin, cx, cy float64) float64 {
 
 // EstimateSkew returns degrees CCW that straighten text rows. Port of estimate_skew.
 func EstimateSkew(g *Gray) float64 {
-	const side = 800
+	const side = 600
 	s := float64(side) / float64(max(g.W, g.H))
 	sm := g.ResizeArea(max(1, int(math.Round(float64(g.W)*s))), max(1, int(math.Round(float64(g.H)*s))))
 	sum := 0.0
@@ -709,7 +709,7 @@ func EstimateSkew(g *Gray) float64 {
 		return vals
 	}
 	var coarse []float64
-	for a := -5.0; a <= 5.000001; a += 0.5 {
+	for a := -5.0; a <= 5.000001; a += 1.0 {
 		coarse = append(coarse, a)
 	}
 	cv := evalAll(coarse)
@@ -719,12 +719,23 @@ func EstimateSkew(g *Gray) float64 {
 			bestV, best = cv[i], coarse[i]
 		}
 	}
+	var mid []float64
+	for a := best - 1.0; a <= best+1.000001; a += 0.5 {
+		mid = append(mid, a)
+	}
+	mv := evalAll(mid)
+	midB, midV := best, bestV
+	for i := range mid {
+		if mv[i] > midV {
+			midV, midB = mv[i], mid[i]
+		}
+	}
 	var fine []float64
-	for a := best - 0.5; a <= best+0.500001; a += 0.1 {
+	for a := midB - 0.5; a <= midB+0.500001; a += 0.1 {
 		fine = append(fine, a)
 	}
 	fv := evalAll(fine)
-	fineB, fineV := best, bestV
+	fineB, fineV := midB, midV
 	for i := range fine {
 		if fv[i] > fineV {
 			fineV, fineB = fv[i], fine[i]
