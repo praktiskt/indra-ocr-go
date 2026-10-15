@@ -431,12 +431,7 @@ func PageToInput(g *Gray, longSide int) (ink []float32, pw, ph int, scale float6
 // Rows are independent; sharded across CPUs for page-sized inputs.
 func fillInk(ink []float32, pw int, src []uint8, sw, nw, nh int) {
 	if nh < 256 {
-		for y := 0; y < nh; y++ {
-			ou, iu := y*pw, y*sw
-			for x := 0; x < nw; x++ {
-				ink[ou+x] = 1 - float32(src[iu+x])/255
-			}
-		}
+		fillInkRows(ink, pw, src, sw, nw, 0, nh)
 		return
 	}
 	workers := runtime.NumCPU()
@@ -453,16 +448,39 @@ func fillInk(ink []float32, pw int, src []uint8, sw, nw, nh int) {
 		wg.Add(1)
 		go func(y0, y1 int) {
 			defer wg.Done()
-			for y := y0; y < y1; y++ {
-				ou, iu := y*pw, y*sw
-				for x := 0; x < nw; x++ {
-					ink[ou+x] = 1 - float32(src[iu+x])/255
-				}
-			}
+			fillInkRows(ink, pw, src, sw, nw, y0, y1)
 		}(y0, y1)
 	}
 	wg.Wait()
 }
+
+// fillInkRowsScalar is the original per-row body (also the row-tail helper of
+// the SIMD build, where fillInkRows is a var pointing at the fast path).
+func fillInkRowsScalar(ink []float32, pw int, src []uint8, sw, nw, y0, y1 int) {
+	for y := y0; y < y1; y++ {
+		ou, iu := y*pw, y*sw
+		for x := 0; x < nw; x++ {
+			ink[ou+x] = 1 - float32(src[iu+x])/255
+		}
+	}
+}
+
+// fillInkRows selects the per-row fill; the SIMD build replaces it with the
+// AVX-512 fast path. inkSet1Fn handles the flat CropLine conversion.
+var (
+	fillInkRows func(ink []float32, pw int, src []uint8, sw, nw, y0, y1 int) = fillInkRowsScalar
+	inkSet1Fn   func(ink []float32, src []uint8)                             = inkSet1Scalar
+)
+
+// inkSet1Scalar fills a flat sink with 1 - p/255 (scalar reference body; the
+// SIMD build swaps it out via inkSet1Fn).
+func inkSet1Scalar(ink []float32, src []uint8) {
+	for i, p := range src {
+		ink[i] = 1 - float32(p)/255
+	}
+}
+
+var fillInkRowDevice = 0
 
 // Line crop geometry, port of rec_preproc.py.
 const (
@@ -513,9 +531,7 @@ func CropLine(g *Gray, box [4]float64, height int) []float32 {
 		rs = src.ResizeLinear(outW, height)
 	}
 	out := make([]float32, outW*height)
-	for i, p := range rs.Pix {
-		out[i] = 1 - float32(p)/255
-	}
+	inkSet1Fn(out, rs.Pix)
 	return out
 }
 
