@@ -123,7 +123,16 @@ func newOptions(threads int) (*ort.SessionOptions, error) {
 	if err := o.SetInterOpNumThreads(1); err != nil {
 		return nil, err
 	}
-	if err := o.SetCpuMemArena(false); err != nil {
+	if err := o.SetGraphOptimizationLevel(ort.GraphOptimizationLevelEnableAll); err != nil {
+		return nil, err
+	}
+	if err := o.SetCpuMemArena(true); err != nil {
+		return nil, err
+	}
+	if err := o.SetMemPattern(true); err != nil {
+		return nil, err
+	}
+	if err := o.SetLogSeverityLevel(ort.LoggingLevelFatal); err != nil {
 		return nil, err
 	}
 	return o, nil
@@ -192,9 +201,8 @@ func (s *Sessions) RunDet(ink []float32, ph, pw int) ([]float32, int, int, error
 	if err := s.Det.Run([]ort.Value{x}, []ort.Value{y}); err != nil {
 		return nil, 0, 0, err
 	}
-	data := append([]float32(nil), y.GetData()...)
 	sh := y.GetShape()
-	return data, int(sh[2]), int(sh[3]), nil
+	return y.GetData(), int(sh[2]), int(sh[3]), nil
 }
 
 // RecOut is one batch of rec.onnx outputs.
@@ -241,9 +249,9 @@ func (s *Sessions) RunRec(batch []float32, b, h, wm int, widths []int64) (*RecOu
 	}
 	tt := int(ids.GetShape()[1])
 	return &RecOut{
-		IDs:  append([]int64(nil), ids.GetData()...),
-		Conf: append([]float32(nil), conf.GetData()...),
-		Lens: append([]int64(nil), lens.GetData()...),
+		IDs:  ids.GetData(),
+		Conf: conf.GetData(),
+		Lens: lens.GetData(),
 		B:    b, T: tt,
 	}, nil
 }
@@ -296,9 +304,9 @@ func (s *Sessions) RunOrder(feats []float32, n int) (*OrderOut, error) {
 		return nil, err
 	}
 	return &OrderOut{
-		A:    append([]float32(nil), a.GetData()...),
-		Cls:  append([]float32(nil), cls.GetData()...),
-		Same: append([]float32(nil), same.GetData()...),
+		A:    a.GetData(),
+		Cls:  cls.GetData(),
+		Same: same.GetData(),
 		N:    n,
 	}, nil
 }

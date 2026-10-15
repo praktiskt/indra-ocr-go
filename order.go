@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // BlockClasses are the layout head classes per line.
@@ -57,10 +58,9 @@ func LineFeatures(boxes [][4]float64, pageW, pageH float64, texts []string) []fl
 		if texts != nil && i < len(texts) {
 			t := trimSpace(texts[i])
 			if t != "" {
-				r := []rune(t)
 				nd := 0
-				for _, c := range r {
-					if c >= '0' && c <= '9' {
+				for k := 0; k < len(t); k++ {
+					if t[k] >= '0' && t[k] <= '9' {
 						nd++
 					}
 				}
@@ -73,11 +73,12 @@ func LineFeatures(boxes [][4]float64, pageW, pageH float64, texts []string) []fl
 				if endsWithHyphen(t) {
 					row[3] = 1
 				}
-				last := r[len(r)-1]
+				last, _ := utf8.DecodeLastRuneInString(t)
 				if last == '.' || last == '!' || last == '?' || last == ':' || last == ';' {
 					row[4] = 1
 				}
-				if unicode.IsUpper(r[0]) {
+				first, _ := utf8.DecodeRuneInString(t)
+				if unicode.IsUpper(first) {
 					row[5] = 1
 				}
 			}
@@ -108,9 +109,9 @@ func trimSpace(s string) string {
 }
 
 func isListStart(t string) bool {
-	r := []rune(t)
-	if len(r) > 0 {
-		switch r[0] {
+	first, _ := utf8.DecodeRuneInString(t)
+	if len(t) > 0 {
+		switch first {
 		case '•', '-', '–', '▪', '◦', '*', '·', '→':
 			return true
 		}
@@ -163,30 +164,30 @@ func DecodeOrder(a [][]float64, sweeps int) []int {
 	for i := range order {
 		order[i] = i
 	}
-	sort.Slice(order, func(p, q int) bool {
-		si, sj := 0.0, 0.0
+	// Precompute sort keys: key[i] = sum_j lp[i,j] - sum_k lp[k,i].
+	// Old code recomputed these O(n) per comparison (O(n^2 log n)).
+	key := make([]float64, n)
+	for i := 0; i < n; i++ {
+		s := 0.0
 		for k := 0; k < n; k++ {
-			si += -lp[k][order[p]] + lp[order[p]][k]
-			sj += -lp[k][order[q]] + lp[order[q]][k]
+			s += lp[i][k] - lp[k][i]
 		}
-		// sort by rowsum desc: key = sum_j lp[i,j] - sum_k lp[k,i]
-		ki := 0.0
-		kj := 0.0
-		for k := 0; k < n; k++ {
-			ki += lp[order[p]][k] - lp[k][order[p]]
-			kj += lp[order[q]][k] - lp[k][order[q]]
-		}
-		_ = si
-		_ = sj
-		return ki > kj
-	})
-	pos := make([]int, n)
+		key[i] = s
+	}
+	sort.Slice(order, func(p, q int) bool { return key[order[p]] > key[order[q]] })
+	rest := make([]int, 0, n-1)
+	before := make([]float64, 0, n-1)
+	after := make([]float64, 0, n-1)
+	gains := make([]float64, n)
+	suf := make([]float64, n)
+	tmp := make([]int, n)
+	cur := make([]int, n)
 	for sweep := 0; sweep < sweeps; sweep++ {
 		improved := false
-		cur := append([]int(nil), order...)
+		copy(cur, order)
 		for _, x := range cur {
 			// rest = order without x
-			rest := make([]int, 0, n-1)
+			rest = rest[:0]
 			curPos := -1
 			for k, v := range order {
 				if v == x {
@@ -195,13 +196,12 @@ func DecodeOrder(a [][]float64, sweeps int) []int {
 				}
 				rest = append(rest, v)
 			}
-			before := make([]float64, n-1) // lp[rest,x]
-			after := make([]float64, n-1)  // lp[x,rest]
-			for k, v := range rest {
-				before[k] = lp[v][x]
-				after[k] = lp[x][v]
+			before = before[:0]
+			after = after[:0]
+			for _, v := range rest {
+				before = append(before, lp[v][x])
+				after = append(after, lp[x][v])
 			}
-			gains := make([]float64, n)
 			cum := 0.0
 			gains[0] = 0
 			for k := 0; k < n-1; k++ {
@@ -210,11 +210,11 @@ func DecodeOrder(a [][]float64, sweeps int) []int {
 			}
 			// add reversed cumsum of after
 			cum = 0
-			suf := make([]float64, n)
 			for k := n - 2; k >= 0; k-- {
 				cum += after[k]
 				suf[k] = cum
 			}
+			suf[n-1] = 0
 			for k := 0; k < n; k++ {
 				gains[k] += suf[k]
 			}
@@ -225,7 +225,10 @@ func DecodeOrder(a [][]float64, sweeps int) []int {
 				}
 			}
 			if gains[best] > gains[curPos]+1e-6 {
-				order = append(append([]int(nil), rest[:best]...), append([]int{x}, rest[best:]...)...)
+				copy(tmp, rest[:best])
+				tmp[best] = x
+				copy(tmp[best+1:], rest[best:])
+				order = append(order[:0], tmp[:n]...)
 				improved = true
 			}
 		}
@@ -233,7 +236,6 @@ func DecodeOrder(a [][]float64, sweeps int) []int {
 			break
 		}
 	}
-	_ = pos
 	return order
 }
 

@@ -26,11 +26,10 @@ func DecodeDet(out []float32, h, w int) []DetBox {
 	core := out[:h*w]
 	top := out[h*w : 2*h*w]
 	bot := out[2*h*w : 3*h*w]
-	// Sigmoid + threshold mask.
+	// Foreground <=> sigmoid(core) > 0.5 <=> core > 0. No exp needed.
 	mask := make([]bool, h*w)
 	for i, v := range core {
-		p := float32(1 / (1 + math.Exp(float64(-v))))
-		if p > 0.5 {
+		if v > 0 {
 			mask[i] = true
 		}
 	}
@@ -38,33 +37,13 @@ func DecodeDet(out []float32, h, w int) []DetBox {
 	if n == 0 {
 		return nil
 	}
-	// Stats per label (1-based).
+	// Single fused pass: bounds + means. Exp only on foreground pixels.
 	area := make([]int, n+1)
 	left := make([]int, n+1)
-	width := make([]int, n+1)
 	for i := 1; i <= n; i++ {
 		left[i] = w
 	}
 	right := make([]int, n+1)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			l := lab[y*w+x]
-			if l == 0 {
-				continue
-			}
-			area[l]++
-			if x < left[l] {
-				left[l] = x
-			}
-			if x > right[l] {
-				right[l] = x
-			}
-		}
-	}
-	for i := 1; i <= n; i++ {
-		width[i] = right[i] - left[i] + 1
-	}
-	// Bincount means of top/bot/score over component pixels.
 	cnt := make([]float64, n+1)
 	sumTop := make([]float64, n+1)
 	sumBot := make([]float64, n+1)
@@ -74,9 +53,18 @@ func DecodeDet(out []float32, h, w int) []DetBox {
 		if l == 0 {
 			continue
 		}
+		x := idx % w
 		y := idx / w
+		area[l]++
+		if x < left[l] {
+			left[l] = x
+		}
+		if x > right[l] {
+			right[l] = x
+		}
+		cv := core[idx]
 		yc := (float64(y) + 0.5) * outStride
-		p := 1 / (1 + math.Exp(float64(-core[idx])))
+		p := 1 / (1 + math.Exp(float64(-cv)))
 		cnt[l]++
 		sumTop[l] += yc - float64(top[idx])
 		sumBot[l] += yc + float64(bot[idx])
@@ -96,7 +84,7 @@ func DecodeDet(out []float32, h, w int) []DetBox {
 		}
 		ex := math.Min(coreXShrink*lh, 0.5*lh)
 		x0 := float64(left[i])*outStride - ex
-		x1 := float64(left[i]+width[i])*outStride + ex
+		x1 := float64(left[i]+right[i]-left[i]+1)*outStride + ex
 		boxes = append(boxes, DetBox{
 			X0: float32(x0), Y0: float32(y0),
 			X1: float32(x1), Y1: float32(y1),

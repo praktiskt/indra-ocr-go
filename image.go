@@ -6,6 +6,9 @@ package indra
 import (
 	"image"
 	"math"
+	"runtime"
+	"sort"
+	"sync"
 )
 
 // Gray is a uint8 grayscale page, row-major.
@@ -21,6 +24,51 @@ func NewGray(px []uint8, w, h int) *Gray { return &Gray{Pix: px, W: w, H: h} }
 // FromImage converts any image.Image to gray (ITU-R 601 luma).
 // Use this for decoded files (JPEG decodes to YCbCr, not RGBA).
 func FromImage(img image.Image) *Gray {
+	switch m := img.(type) {
+	case *image.Gray:
+		b := m.Bounds()
+		w, h := b.Dx(), b.Dy()
+		out := make([]uint8, w*h)
+		if b.Min.X == 0 && b.Min.Y == 0 && m.Stride == w {
+			copy(out, m.Pix)
+			return &Gray{Pix: out, W: w, H: h}
+		}
+		for y := 0; y < h; y++ {
+			copy(out[y*w:(y+1)*w], m.Pix[(b.Min.Y+y)*m.Stride+b.Min.X:(b.Min.Y+y)*m.Stride+b.Min.X+w])
+		}
+		return &Gray{Pix: out, W: w, H: h}
+	case *image.RGBA:
+		return FromRGBA(m)
+	case *image.NRGBA:
+		b := m.Bounds()
+		w, h := b.Dx(), b.Dy()
+		out := make([]uint8, w*h)
+		for y := 0; y < h; y++ {
+			ro := (b.Min.Y+y)*m.Stride + b.Min.X*4
+			wo := y * w
+			for x := 0; x < w; x++ {
+				r, g, bl := m.Pix[ro], m.Pix[ro+1], m.Pix[ro+2]
+				out[wo+x] = uint8((299*int(r) + 587*int(g) + 114*int(bl) + 500) / 1000)
+				ro += 4
+			}
+		}
+		return &Gray{Pix: out, W: w, H: h}
+	case *image.YCbCr:
+		return fromYCbCr(m)
+	case *image.Gray16:
+		b := m.Bounds()
+		w, h := b.Dx(), b.Dy()
+		out := make([]uint8, w*h)
+		for y := 0; y < h; y++ {
+			ro := (b.Min.Y+y)*m.Stride + b.Min.X*2
+			wo := y * w
+			for x := 0; x < w; x++ {
+				out[wo+x] = m.Pix[ro] // high byte = >>8
+				ro += 2
+			}
+		}
+		return &Gray{Pix: out, W: w, H: h}
+	}
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
 	out := make([]uint8, w*h)
@@ -28,6 +76,31 @@ func FromImage(img image.Image) *Gray {
 		for x := 0; x < w; x++ {
 			r, g, bl, _ := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
 			out[y*w+x] = uint8((299*(r>>8) + 587*(g>>8) + 114*(bl>>8) + 500) / 1000)
+		}
+	}
+	return &Gray{Pix: out, W: w, H: h}
+}
+
+func fromYCbCr(m *image.YCbCr) *Gray {
+	b := m.Bounds()
+	w, h := b.Dx(), b.Dy()
+	out := make([]uint8, w*h)
+	switch m.SubsampleRatio {
+	case image.YCbCrSubsampleRatio444:
+		for y := 0; y < h; y++ {
+			yo := (b.Min.Y+y)*m.YStride + b.Min.X
+			co := (b.Min.Y+y)*m.CStride + b.Min.X
+			wo := y * w
+			for x := 0; x < w; x++ {
+				out[wo+x] = m.Y[yo+x] // luma direct, no color math
+				_ = m.Cb[co+x]
+			}
+		}
+	default:
+		// 422 / 420 / 411: luma plane subsampled in chroma only.
+		for y := 0; y < h; y++ {
+			yo := (b.Min.Y+y)*m.YStride + b.Min.X
+			copy(out[y*w:(y+1)*w], m.Y[yo:yo+w])
 		}
 	}
 	return &Gray{Pix: out, W: w, H: h}
@@ -98,32 +171,102 @@ func (g *Gray) ResizeArea(nw, nh int) *Gray {
 	out := make([]uint8, nw*nh)
 	sx := float64(g.W) / float64(nw)
 	sy := float64(g.H) / float64(nh)
-	for y := 0; y < nh; y++ {
-		y0, y1 := float64(y)*sy, float64(y+1)*sy
+	src := g.Pix
+	sw := g.W
+	sh := g.H
+	// Precompute x weights per dst column: [x0, x1) source span.
+	// Small widths: sequential to avoid goroutine overhead.
+	if nh >= 256 {
+		workers := runtime.NumCPU()
+		if workers > nh {
+			workers = nh
+		}
+		var wg sync.WaitGroup
+		rowsPer := (nh + workers - 1) / workers
+		for wi := 0; wi < workers; wi++ {
+			y0, y1 := wi*rowsPer, min(nh, (wi+1)*rowsPer)
+			if y0 >= y1 {
+				break
+			}
+			wg.Add(1)
+			go func(y0, y1 int) {
+				defer wg.Done()
+				resizeAreaRows(src, sw, sh, out, nw, y0, y1, sx, sy)
+			}(y0, y1)
+		}
+		wg.Wait()
+		return &Gray{Pix: out, W: nw, H: nh}
+	}
+	resizeAreaRows(src, sw, sh, out, nw, 0, nh, sx, sy)
+	return &Gray{Pix: out, W: nw, H: nh}
+}
+
+func resizeAreaRows(src []uint8, sw, sh int, out []uint8, nw, y0, y1 int, sx, sy float64) {
+	for y := y0; y < y1; y++ {
+		sy0 := float64(y) * sy
+		sy1 := float64(y+1) * sy
+		yy0 := int(sy0)
+		yy1 := int(sy1)
+		if float64(yy1) < sy1 {
+			yy1++
+		}
+		if yy0 < 0 {
+			yy0 = 0
+		}
+		if yy1 > sh {
+			yy1 = sh
+		}
+		ou := y * nw
 		for x := 0; x < nw; x++ {
-			x0, x1 := float64(x)*sx, float64(x+1)*sx
+			sx0 := float64(x) * sx
+			sx1 := float64(x+1) * sx
+			xx0 := int(sx0)
+			xx1 := int(sx1)
+			if float64(xx1) < sx1 {
+				xx1++
+			}
+			if xx0 < 0 {
+				xx0 = 0
+			}
+			if xx1 > sw {
+				xx1 = sw
+			}
 			sum, wsum := 0.0, 0.0
-			for yy := int(y0); float64(yy) < y1; yy++ {
-				oy0 := math.Max(y0, float64(yy))
-				oy1 := math.Min(y1, float64(yy+1))
-				if oy1 <= oy0 {
+			for yy := yy0; yy < yy1; yy++ {
+				oy0 := sy0
+				if float64(yy) > oy0 {
+					oy0 = float64(yy)
+				}
+				oy1 := sy1
+				if float64(yy+1) < oy1 {
+					oy1 = float64(yy + 1)
+				}
+				wy := oy1 - oy0
+				if wy <= 0 {
 					continue
 				}
-				for xx := int(x0); float64(xx) < x1; xx++ {
-					ox0 := math.Max(x0, float64(xx))
-					ox1 := math.Min(x1, float64(xx+1))
-					if ox1 <= ox0 {
+				base := yy * sw
+				for xx := xx0; xx < xx1; xx++ {
+					ox0 := sx0
+					if float64(xx) > ox0 {
+						ox0 = float64(xx)
+					}
+					ox1 := sx1
+					if float64(xx+1) < ox1 {
+						ox1 = float64(xx + 1)
+					}
+					wx := ox1 - ox0
+					if wx <= 0 {
 						continue
 					}
-					w := (ox1 - ox0) * (oy1 - oy0)
-					sum += float64(g.At(xx, yy)) * w
+					w := wx * wy
+					sum += float64(src[base+xx]) * w
 					wsum += w
 				}
 			}
-			out[y*nw+x] = uint8(math.Round(sum / wsum))
+			out[ou+x] = uint8(sum/wsum + 0.5)
 		}
 	}
-	return &Gray{Pix: out, W: nw, H: nh}
 }
 
 // ResizeLinear is half-pixel bilinear with edge replicate (matches cv2).
@@ -137,23 +280,81 @@ func (g *Gray) ResizeLinear(nw, nh int) *Gray {
 	out := make([]uint8, nw*nh)
 	sx := float64(g.W) / float64(nw)
 	sy := float64(g.H) / float64(nh)
-	for y := 0; y < nh; y++ {
+	src := g.Pix
+	sw, sh := g.W, g.H
+	if nh >= 256 {
+		workers := runtime.NumCPU()
+		if workers > nh {
+			workers = nh
+		}
+		var wg sync.WaitGroup
+		rowsPer := (nh + workers - 1) / workers
+		for wi := 0; wi < workers; wi++ {
+			y0, y1 := wi*rowsPer, min(nh, (wi+1)*rowsPer)
+			if y0 >= y1 {
+				break
+			}
+			wg.Add(1)
+			go func(y0, y1 int) {
+				defer wg.Done()
+				resizeLinearRows(src, sw, sh, out, nw, y0, y1, sx, sy)
+			}(y0, y1)
+		}
+		wg.Wait()
+		return &Gray{Pix: out, W: nw, H: nh}
+	}
+	resizeLinearRows(src, sw, sh, out, nw, 0, nh, sx, sy)
+	return &Gray{Pix: out, W: nw, H: nh}
+}
+
+func resizeLinearRows(src []uint8, sw, sh int, out []uint8, nw, y0, y1 int, sx, sy float64) {
+	lastX, lastY := sw-1, sh-1
+	for y := y0; y < y1; y++ {
 		fy := (float64(y)+0.5)*sy - 0.5
-		y0 := int(math.Floor(fy))
-		dy := fy - float64(y0)
+		y0i := int(math.Floor(fy))
+		dy := fy - float64(y0i)
+		if y0i < 0 {
+			y0i, dy = 0, 0
+		} else if y0i >= lastY {
+			y0i, dy = lastY, 1
+			if sh == 1 {
+				y0i, dy = 0, 0
+			}
+		}
+		r0 := y0i * sw
+		r1 := r0
+		if y0i+1 < sh {
+			r1 = (y0i + 1) * sw
+		}
+		ou := y * nw
+		wy0, wy1 := 1-dy, dy
 		for x := 0; x < nw; x++ {
 			fx := (float64(x)+0.5)*sx - 0.5
-			x0 := int(math.Floor(fx))
-			dx := fx - float64(x0)
-			a := float64(g.At(x0, y0))
-			b := float64(g.At(x0+1, y0))
-			c := float64(g.At(x0, y0+1))
-			d := float64(g.At(x0+1, y0+1))
-			v := a*(1-dx)*(1-dy) + b*dx*(1-dy) + c*(1-dx)*dy + d*dx*dy
-			out[y*nw+x] = uint8(math.Round(v))
+			x0i := int(math.Floor(fx))
+			dx := fx - float64(x0i)
+			if x0i < 0 {
+				x0i, dx = 0, 0
+			} else if x0i >= lastX {
+				x0i, dx = lastX, 1
+				if sw == 1 {
+					x0i, dx = 0, 0
+				}
+			}
+			a := float64(src[r0+x0i])
+			b := float64(src[r0+x0i+boolToInt(x0i+1 < sw)])
+			c := float64(src[r1+x0i])
+			d := float64(src[r1+x0i+boolToInt(x0i+1 < sw)])
+			wx0, wx1 := 1-dx, dx
+			out[ou+x] = uint8(a*wx0*wy0 + b*wx1*wy0 + c*wx0*wy1 + d*wx1*wy1 + 0.5)
 		}
 	}
-	return &Gray{Pix: out, W: nw, H: nh}
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 const inputMultiple = 32
@@ -205,17 +406,27 @@ func CropLine(g *Gray, box [4]float64, height int) []float32 {
 	ix1, iy1 := int(math.Ceil(X1)), int(math.Ceil(Y1))
 	cw := max(1, ix1-ix0)
 	ch := max(1, iy1-iy0)
-	// Build crop with white outside the page.
-	crop := make([]uint8, cw*ch)
-	for i := range crop {
-		crop[i] = 255
-	}
 	sx0, sy0 := max(0, ix0), max(0, iy0)
 	sx1, sy1 := min(g.W, ix1), min(g.H, iy1)
-	for y := sy0; y < sy1; y++ {
-		copy(crop[(y-iy0)*cw+(sx0-ix0):(y-iy0)*cw+(sx1-ix0)], g.Pix[y*g.W+sx0:y*g.W+sx1])
+	fullInside := sx0 == ix0 && sy0 == iy0 && sx1 == ix1 && sy1 == iy1
+	var src *Gray
+	if fullInside && cw == g.W {
+		// Fast path: crop is full-width slice, no white borders.
+		src = &Gray{Pix: g.Pix[sy0*g.W : sy1*g.W], W: cw, H: ch}
+	} else {
+		// Build crop with white outside the page.
+		crop := make([]uint8, cw*ch)
+		for i := range crop {
+			crop[i] = 255
+		}
+		if sx1 > sx0 && sy1 > sy0 {
+			w := sx1 - sx0
+			for y := sy0; y < sy1; y++ {
+				copy(crop[(y-iy0)*cw+(sx0-ix0):(y-iy0)*cw+(sx0-ix0)+w], g.Pix[y*g.W+sx0:y*g.W+sx1])
+			}
+		}
+		src = &Gray{Pix: crop, W: cw, H: ch}
 	}
-	src := &Gray{Pix: crop, W: cw, H: ch}
 	outW := max(WidthMultiple, min(MaxLineWidth, int(math.Round(float64(cw)*float64(height)/float64(ch)))))
 	var rs *Gray
 	if ch > height {
@@ -260,12 +471,7 @@ func WidthBatches(widths []int, maxBatch int) [][]int {
 	for i := range order {
 		order[i] = i
 	}
-	// Insertion sort is fine for page-sized N; use simple sort.
-	for i := 1; i < len(order); i++ {
-		for j := i; j > 0 && widths[order[j]] < widths[order[j-1]]; j-- {
-			order[j], order[j-1] = order[j-1], order[j]
-		}
-	}
+	sort.Slice(order, func(a, b int) bool { return widths[order[a]] < widths[order[b]] })
 	const maxRatio = 1.3
 	const minWidth = 64
 	const maxArea = 64 * 640
@@ -313,23 +519,125 @@ func RotatePage(g *Gray, degrees float64) *Gray {
 	cos, sin := math.Cos(rad), math.Sin(rad)
 	cx, cy := float64(g.W)/2, float64(g.H)/2
 	out := make([]uint8, len(g.Pix))
-	for y := 0; y < g.H; y++ {
-		for x := 0; x < g.W; x++ {
-			// Inverse map: source point for dest (x,y).
-			dx, dy := float64(x)-cx, float64(y)-cy
-			sx := cos*dx - sin*dy + cx
-			sy := sin*dx + cos*dy + cy
-			x0 := int(math.Floor(sx))
-			y0 := int(math.Floor(sy))
-			fx, fy := sx-float64(x0), sy-float64(y0)
-			a := float64(g.At(x0, y0))
-			b := float64(g.At(x0+1, y0))
-			c := float64(g.At(x0, y0+1))
-			d := float64(g.At(x0+1, y0+1))
-			out[y*g.W+x] = uint8(math.Round(a*(1-fx)*(1-fy) + b*fx*(1-fy) + c*(1-fx)*fy + d*fx*fy))
+	workers := runtime.NumCPU()
+	if workers > g.H {
+		workers = g.H
+	}
+	if workers <= 1 || g.H < 256 {
+		rotateRows(g.Pix, g.W, g.H, out, 0, g.H, cos, sin, cx, cy)
+		return &Gray{Pix: out, W: g.W, H: g.H}
+	}
+	var wg sync.WaitGroup
+	rowsPer := (g.H + workers - 1) / workers
+	for wi := 0; wi < workers; wi++ {
+		y0, y1 := wi*rowsPer, min(g.H, (wi+1)*rowsPer)
+		if y0 >= y1 {
+			break
+		}
+		wg.Add(1)
+		go func(y0, y1 int) {
+			defer wg.Done()
+			rotateRows(g.Pix, g.W, g.H, out, y0, y1, cos, sin, cx, cy)
+		}(y0, y1)
+	}
+	wg.Wait()
+	return &Gray{Pix: out, W: g.W, H: g.H}
+}
+
+func rotateRows(src []uint8, w, h int, out []uint8, y0, y1 int, cos, sin, cx, cy float64) {
+	lastX, lastY := w-1, h-1
+	for y := y0; y < y1; y++ {
+		dy := float64(y) - cy
+		ou := y * w
+		for x := 0; x < w; x++ {
+			dx := float64(x) - cx
+			sxf := cos*dx - sin*dy + cx
+			syf := sin*dx + cos*dy + cy
+			x0 := int(math.Floor(sxf))
+			y0i := int(math.Floor(syf))
+			fx, fy := sxf-float64(x0), syf-float64(y0i)
+			var xa, xb int
+			var wx0, wx1 float64
+			if x0 < 0 {
+				xa, xb, wx0, wx1 = 0, 0, 1, 0
+			} else if x0 >= lastX {
+				xa, xb, wx0, wx1 = lastX, lastX, 1, 0
+				if w == 1 {
+					xa, xb = 0, 0
+				}
+			} else {
+				xa, xb, wx0, wx1 = x0, x0+1, 1-fx, fx
+			}
+			var ya, yb int
+			var wy0, wy1 float64
+			if y0i < 0 {
+				ya, yb, wy0, wy1 = 0, 0, 1, 0
+			} else if y0i >= lastY {
+				ya, yb, wy0, wy1 = lastY, lastY, 1, 0
+				if h == 1 {
+					ya, yb = 0, 0
+				}
+			} else {
+				ya, yb, wy0, wy1 = y0i, y0i+1, 1-fy, fy
+			}
+			a := float64(src[ya*w+xa])
+			b := float64(src[ya*w+xb])
+			c := float64(src[yb*w+xa])
+			d := float64(src[yb*w+xb])
+			out[ou+x] = uint8(a*wx0*wy0 + b*wx1*wy0 + c*wx0*wy1 + d*wx1*wy1 + 0.5)
 		}
 	}
-	return &Gray{Pix: out, W: g.W, H: g.H}
+}
+
+// sharpRows fuses RotatePage + row-sum sharpness: no output image alloc.
+// tot = sum_y (rowsum[y]-rowsum[y-1])^2 where rowsum uses ink=(255-v)/255.
+func sharpRows(src []uint8, w, h int, cos, sin, cx, cy float64) float64 {
+	sums := make([]float64, h)
+	inv := 1.0 / 255.0
+	lastX, lastY := w-1, h-1
+	for y := 0; y < h; y++ {
+		dy := float64(y) - cy
+		s := 0.0
+		for x := 0; x < w; x++ {
+			dx := float64(x) - cx
+			sxf := cos*dx - sin*dy + cx
+			syf := sin*dx + cos*dy + cy
+			x0 := int(math.Floor(sxf))
+			y0i := int(math.Floor(syf))
+			fx, fy := sxf-float64(x0), syf-float64(y0i)
+			var xa, xb int
+			var wx0, wx1 float64
+			if x0 < 0 {
+				xa, xb, wx0, wx1 = 0, 0, 1, 0
+			} else if x0 >= lastX {
+				xa, xb, wx0, wx1 = lastX, lastX, 1, 0
+			} else {
+				xa, xb, wx0, wx1 = x0, x0+1, 1-fx, fx
+			}
+			var ya, yb int
+			var wy0, wy1 float64
+			if y0i < 0 {
+				ya, yb, wy0, wy1 = 0, 0, 1, 0
+			} else if y0i >= lastY {
+				ya, yb, wy0, wy1 = lastY, lastY, 1, 0
+			} else {
+				ya, yb, wy0, wy1 = y0i, y0i+1, 1-fy, fy
+			}
+			a := float64(src[ya*w+xa])
+			b := float64(src[ya*w+xb])
+			c := float64(src[yb*w+xa])
+			d := float64(src[yb*w+xb])
+			v := a*wx0*wy0 + b*wx1*wy0 + c*wx0*wy1 + d*wx1*wy1
+			s += 255 - v
+		}
+		sums[y] = s * inv
+	}
+	tot := 0.0
+	for y := 1; y < h; y++ {
+		d := sums[y] - sums[y-1]
+		tot += d * d
+	}
+	return tot
 }
 
 // EstimateSkew returns degrees CCW that straighten text rows. Port of estimate_skew.
@@ -337,46 +645,63 @@ func EstimateSkew(g *Gray) float64 {
 	const side = 800
 	s := float64(side) / float64(max(g.W, g.H))
 	sm := g.ResizeArea(max(1, int(math.Round(float64(g.W)*s))), max(1, int(math.Round(float64(g.H)*s))))
-	ink := make([]float32, len(sm.Pix))
 	sum := 0.0
-	for i, p := range sm.Pix {
-		ink[i] = (255 - float32(p)) / 255
-		sum += float64(ink[i])
+	for _, p := range sm.Pix {
+		sum += float64(255 - p)
 	}
-	if sum/float64(len(ink)) < 0.003 {
+	if sum/float64(len(sm.Pix))/255 < 0.003 {
 		return 0
 	}
+	cx, cy := float64(sm.W)/2, float64(sm.H)/2
 	sharp := func(a float64) float64 {
-		r := RotatePage(sm, a)
-		// Row sums, squared diffs.
-		var tot float64
-		prev := 0.0
-		for y := 0; y < r.H; y++ {
-			s := 0.0
-			for x := 0; x < r.W; x++ {
-				s += float64(255-r.Pix[y*r.W+x]) / 255
-			}
-			if y > 0 {
-				d := s - prev
-				tot += d * d
-			}
-			prev = s
-		}
-		return tot
+		rad := a * math.Pi / 180
+		return sharpRows(sm.Pix, sm.W, sm.H, math.Cos(rad), math.Sin(rad), cx, cy)
 	}
-	best, bestV := 0.0, -1.0
+	evalAll := func(angles []float64) []float64 {
+		vals := make([]float64, len(angles))
+		if len(angles) < 4 {
+			for i, a := range angles {
+				vals[i] = sharp(a)
+			}
+			return vals
+		}
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, runtime.NumCPU())
+		for i, a := range angles {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(i int, a float64) {
+				defer wg.Done()
+				vals[i] = sharp(a)
+				<-sem
+			}(i, a)
+		}
+		wg.Wait()
+		return vals
+	}
+	var coarse []float64
 	for a := -5.0; a <= 5.000001; a += 0.5 {
-		if v := sharp(a); v > bestV {
-			bestV, best = v, a
+		coarse = append(coarse, a)
+	}
+	cv := evalAll(coarse)
+	best, bestV := coarse[0], cv[0]
+	for i := range coarse {
+		if cv[i] > bestV {
+			bestV, best = cv[i], coarse[i]
 		}
 	}
-	fine, fineV := best, bestV
+	var fine []float64
 	for a := best - 0.5; a <= best+0.500001; a += 0.1 {
-		if v := sharp(a); v > fineV {
-			fineV, fine = v, a
+		fine = append(fine, a)
+	}
+	fv := evalAll(fine)
+	fineB, fineV := best, bestV
+	for i := range fine {
+		if fv[i] > fineV {
+			fineV, fineB = fv[i], fine[i]
 		}
 	}
-	return fine
+	return fineB
 }
 
 // UnrotateBox maps a box of the deskewed page back to the page before it.

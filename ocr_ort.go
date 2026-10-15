@@ -4,8 +4,10 @@ package indra
 
 import (
 	"math"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 )
 
 const (
@@ -142,12 +144,32 @@ func (o *OCR) Recognize(g *Gray, boxes [][4]float32) []recLine {
 	}
 	crops := make([]crop, n)
 	widths := make([]int, n)
-	for i, b := range boxes {
-		fb := [4]float64{float64(b[0]), float64(b[1]), float64(b[2]), float64(b[3])}
-		ink := CropLine(g, fb, o.M.RecHeight)
-		w := len(ink) / o.M.RecHeight
-		crops[i] = crop{ink, w}
-		widths[i] = w
+	if n >= 16 {
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, runtime.NumCPU())
+		for i, b := range boxes {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(i int, b [4]float32) {
+				defer wg.Done()
+				fb := [4]float64{float64(b[0]), float64(b[1]), float64(b[2]), float64(b[3])}
+				ink := CropLine(g, fb, o.M.RecHeight)
+				crops[i] = crop{ink, len(ink) / o.M.RecHeight}
+				<-sem
+			}(i, b)
+		}
+		wg.Wait()
+		for i := range crops {
+			widths[i] = crops[i].w
+		}
+	} else {
+		for i, b := range boxes {
+			fb := [4]float64{float64(b[0]), float64(b[1]), float64(b[2]), float64(b[3])}
+			ink := CropLine(g, fb, o.M.RecHeight)
+			w := len(ink) / o.M.RecHeight
+			crops[i] = crop{ink, w}
+			widths[i] = w
+		}
 	}
 	for _, batch := range WidthBatches(widths, 64) {
 		idx := batch
@@ -167,18 +189,22 @@ func (o *OCR) Recognize(g *Gray, boxes [][4]float32) []recLine {
 		stride := float64(wm) / math.Max(float64(ro.T), 1)
 		for k, j := range idx {
 			ln := int(ro.Lens[k])
-			var seq, pm []float64
-			var ids []int
-			for t := 0; t < ln && t < ro.T; t++ {
-				ids = append(ids, int(ro.IDs[k*ro.T+t]))
-				pm = append(pm, float64(ro.Conf[k*ro.T+t]))
+			if ln > ro.T {
+				ln = ro.T
+			}
+			ids := make([]int, 0, ln)
+			pm := make([]float64, 0, ln)
+			base := k * ro.T
+			for t := 0; t < ln; t++ {
+				ids = append(ids, int(ro.IDs[base+t]))
+				pm = append(pm, float64(ro.Conf[base+t]))
 			}
 			// CTC collapse: drop blanks; collapse repeats unless separated
 			// by a blank (mirrors pipeline.py: keep = (seq != 0) &
 			// concatenate([True], seq[1:] != seq[:-1])).
-			var kept []int
-			var keptP []float64
-			var keptT []int
+			kept := make([]int, 0, len(ids))
+			keptP := make([]float64, 0, len(ids))
+			keptT := make([]int, 0, len(ids))
 			prev := -1
 			for t, id := range ids {
 				if id != 0 && id != prev {
@@ -188,17 +214,15 @@ func (o *OCR) Recognize(g *Gray, boxes [][4]float32) []recLine {
 				}
 				prev = id
 			}
-			_ = seq
 			b := boxes[j]
 			h := math.Max(1, float64(b[3]-b[1]))
 			ix0 := math.Floor(float64(b[0]) - PadX*h)
 			cw := math.Ceil(float64(b[2])+PadX*h) - ix0
 			f := cw / float64(crops[j].w)
-			var toks []Token
-			var xs []float64
+			toks := make([]Token, 0, len(kept))
 			for q, id := range kept {
-				xs = append(xs, ix0+(float64(keptT[q])+0.5)*stride*f)
-				toks = append(toks, Token{ID: id, X: xs[len(xs)-1]})
+				x := ix0 + (float64(keptT[q])+0.5)*stride*f
+				toks = append(toks, Token{ID: id, X: x})
 			}
 			conf := 0.0
 			if len(keptP) > 0 {
@@ -456,6 +480,20 @@ func gutterCuts(v *Vocab, boxes [][4]float64, rec []recLine) [][]float64 {
 	for i, b := range boxes {
 		lefts[i], rights[i] = b[0], b[2]
 	}
+	sL, sR := lefts, rights // sorted lazily on first wide gap
+	sorted := false
+	countNear := func(vals []float64, x, tol float64) int {
+		lo := sort.SearchFloat64s(vals, x-tol)
+		hi := sort.SearchFloat64s(vals, x+tol)
+		// open interval (x-tol, x+tol): trim exact boundaries
+		for lo < hi && vals[lo] <= x-tol {
+			lo++
+		}
+		for hi > lo && vals[hi-1] >= x+tol {
+			hi--
+		}
+		return hi - lo
+	}
 	for i := range boxes {
 		h := math.Max(1, boxes[i][3]-boxes[i][1])
 		var xs []float64
@@ -465,20 +503,41 @@ func gutterCuts(v *Vocab, boxes [][4]float64, rec []recLine) [][]float64 {
 			}
 			xs = append(xs, tk.X)
 		}
+		tol := 0.5 * h
+		wide := false
+		for k := 0; k+1 < len(xs); k++ {
+			if xs[k+1]-xs[k] > 1.6*h {
+				wide = true
+				break
+			}
+		}
+		if !wide {
+			continue
+		}
+		if !sorted {
+			sL = append([]float64(nil), lefts...)
+			sR = append([]float64(nil), rights...)
+			sort.Float64s(sL)
+			sort.Float64s(sR)
+			sorted = true
+		}
 		for k := 0; k+1 < len(xs); k++ {
 			a, c := xs[k], xs[k+1]
 			if c-a <= 1.6*h {
 				continue
 			}
 			gl, gr := a+0.35*h, c-0.35*h
-			near := 0
-			for j := range boxes {
-				if j == i {
-					continue
-				}
-				if math.Abs(rights[j]-gl) < 0.5*h || math.Abs(lefts[j]-gr) < 0.5*h {
-					near++
-				}
+			near := countNear(sR, gl, tol) + countNear(sL, gr, tol)
+			// countNear includes box i itself; original skips j==i and
+			// counts a box once even if both edges match. Adjust.
+			if math.Abs(rights[i]-gl) < tol {
+				near--
+			}
+			if math.Abs(lefts[i]-gr) < tol {
+				near--
+			}
+			if math.Abs(rights[i]-gl) < tol && math.Abs(lefts[i]-gr) < tol {
+				near++ // was counted twice, should be removed once
 			}
 			if near >= 3 {
 				cuts[i] = append(cuts[i], (a+c)/2)
