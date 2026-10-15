@@ -116,6 +116,8 @@ Failure classes mapped (eyeballed dumps):
    Detection + digits right, glyphs confabulated. No CJK routing exists.
 2. Orient false positive on photo receipts: upright photo + `rot=180`
    (>0.95 conf) = whole page garbage. Dark top background suspected bias.
+   FIXED Oct 2026: true rotations score >=0.998 vs FP 0.954, so
+   `OrientMin` 0.95 -> 0.98. cord 0.6810 -> 0.7055, FUNSD unchanged.
 3. Strong perspective -> det collapse (~29 vs ~100 lines) + skew misread.
    No perspective path in pipeline.
 4. Blur/noise/downscale -> graceful rec degrade (0.46-0.63).
