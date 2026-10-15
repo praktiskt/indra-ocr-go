@@ -4,8 +4,9 @@ package indra
 // forms/faxes/ads). Catches perf changes that silently degrade text quality
 // on pages outside testdata/.
 //
-// Layout: INDRA_CORPUS_DIR/img/*.png + gt.json mapping image basename to its
-// ground-truth word list, e.g. {"train_0.png": ["Monthly", ...]}.
+// Layout: INDRA_CORPUS_DIR/img/*.png + gt.json mapping image basename
+// (extension optional) to its ground-truth word list,
+// e.g. {"train_0": ["Monthly", ...]}.
 //
 // FUNSD fetch (needs uv + ~15MB):
 //
