@@ -148,6 +148,10 @@ Failure classes mapped (eyeballed dumps):
 - Gauntlet scope: Latin print + receipts + photo warp covered;
   CJK/handwriting/scene-text are known voids, quantified not fixed. CJK pages
   score 0.4-0.6 on digits alone.
+- Alphabet probe (synthetic, single-font, clean): ru 0.97, el 0.97, hi 0.95,
+  bn 0.98 — the Cyrillic/Greek/Devanagari/Bengali vocab classes read fine on
+  clean print. Real-scan robustness for these scripts untested; Arabic/Hebrew/
+  Thai have no vocab classes at all.
 
 ## Rules
 
