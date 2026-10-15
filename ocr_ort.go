@@ -51,6 +51,11 @@ type OCR struct {
 
 // NewOCR opens sessions from embedded models.
 func NewOCR(threads int) (*OCR, error) {
+	return NewOCRWithThreads(DefaultThreads(threads))
+}
+
+// NewOCRWithThreads opens sessions with per-model thread counts.
+func NewOCRWithThreads(tc Threads) (*OCR, error) {
 	raw, err := modelFS.ReadFile("models/meta.json")
 	if err != nil {
 		return nil, err
@@ -59,7 +64,7 @@ func NewOCR(threads int) (*OCR, error) {
 	if err != nil {
 		return nil, err
 	}
-	s, err := NewSessions(threads)
+	s, err := NewSessionsWithThreads(tc)
 	if err != nil {
 		return nil, err
 	}
@@ -264,12 +269,22 @@ func (o *OCR) Orientation(g *Gray) int {
 }
 
 // Upright turns the page upright and straightens tilt.
+// Orientation (model) and skew search (CPU) run concurrently on the
+// common upright path; rotated pages re-estimate skew after rotation.
 func (o *OCR) Upright(g *Gray) (*Gray, int, float64) {
-	k := o.Orientation(g)
+	kCh := make(chan int, 1)
+	aCh := make(chan float64, 1)
+	go func() { kCh <- o.Orientation(g) }()
+	go func() { aCh <- EstimateSkew(g) }()
+	k := <-kCh
+	var a float64
 	if k != 0 {
+		<-aCh // discard pre-rotation estimate
 		g = Rot90CCW(g, -k)
+		a = EstimateSkew(g)
+	} else {
+		a = <-aCh
 	}
-	a := EstimateSkew(g)
 	if math.Abs(a) >= deskewMin {
 		g = RotatePage(g, a)
 	} else {

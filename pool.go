@@ -14,6 +14,11 @@ type Pool struct {
 // NewPool opens workers OCR handles, threads intra-op threads each.
 // threads=1 mirrors upstream (one single-threaded worker per core).
 func NewPool(workers, threads int) (*Pool, error) {
+	return NewPoolWithThreads(workers, DefaultThreads(threads))
+}
+
+// NewPoolWithThreads opens workers OCR handles with per-model counts.
+func NewPoolWithThreads(workers int, tc Threads) (*Pool, error) {
 	if workers < 1 {
 		workers = 1
 	}
@@ -25,7 +30,7 @@ func NewPool(workers, threads int) (*Pool, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			o, err := NewOCR(threads)
+			o, err := NewOCRWithThreads(tc)
 			if err != nil {
 				mu.Lock()
 				if firstErr == nil {

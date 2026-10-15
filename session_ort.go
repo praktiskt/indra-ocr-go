@@ -138,17 +138,42 @@ func newOptions(threads int) (*ort.SessionOptions, error) {
 	return o, nil
 }
 
+// Threads sets per-model intra-op thread counts. Det/order/orient are
+// small models where >2 threads adds sync overhead (measured det:
+// 62ms@1, 42ms@2, 45ms@4, 48ms@8); rec scales to ~8 on a 16-core box.
+type Threads struct {
+	Det    int
+	Rec    int
+	Order  int
+	Orient int
+}
+
+// DefaultThreads maps a single knob to per-model counts: rec honors it,
+// the small models cap at 2.
+func DefaultThreads(threads int) Threads {
+	if threads < 1 {
+		threads = 1
+	}
+	small := min(threads, 2)
+	return Threads{Det: small, Rec: threads, Order: small, Orient: small}
+}
+
 // NewSessions opens det/rec/order (+orient when present) from embedded models.
 func NewSessions(threads int) (*Sessions, error) {
+	return NewSessionsWithThreads(DefaultThreads(threads))
+}
+
+// NewSessionsWithThreads opens sessions with per-model thread counts.
+func NewSessionsWithThreads(tc Threads) (*Sessions, error) {
 	if err := InitLib(); err != nil {
 		return nil, fmt.Errorf("indra: onnxruntime init: %w", err)
 	}
-	o, err := newOptions(threads)
-	if err != nil {
-		return nil, err
-	}
-	defer o.Destroy()
-	mk := func(file string, in, out []string) (*ort.DynamicAdvancedSession, error) {
+	mkWith := func(file string, in, out []string, threads int) (*ort.DynamicAdvancedSession, error) {
+		o, err := newOptions(threads)
+		if err != nil {
+			return nil, err
+		}
+		defer o.Destroy()
 		data, err := modelFS.ReadFile("models/" + file)
 		if err != nil {
 			return nil, err
@@ -156,18 +181,19 @@ func NewSessions(threads int) (*Sessions, error) {
 		return ort.NewDynamicAdvancedSessionWithONNXData(data, in, out, o)
 	}
 	s := &Sessions{}
-	if s.Det, err = mk("det.onnx", []string{"x"}, []string{"out"}); err != nil {
+	var err error
+	if s.Det, err = mkWith("det.onnx", []string{"x"}, []string{"out"}, tc.Det); err != nil {
 		return nil, fmt.Errorf("indra: det: %w", err)
 	}
-	if s.Rec, err = mk("rec.onnx", []string{"x", "widths"}, []string{"ids", "conf", "lengths"}); err != nil {
+	if s.Rec, err = mkWith("rec.onnx", []string{"x", "widths"}, []string{"ids", "conf", "lengths"}, tc.Rec); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("indra: rec: %w", err)
 	}
-	if s.Order, err = mk("order.onnx", []string{"feats", "mask"}, []string{"a", "cls", "same", "tab"}); err != nil {
+	if s.Order, err = mkWith("order.onnx", []string{"feats", "mask"}, []string{"a", "cls", "same", "tab"}, tc.Order); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("indra: order: %w", err)
 	}
-	if s.Orient, err = mk("orient.onnx", []string{"x"}, []string{"p"}); err != nil {
+	if s.Orient, err = mkWith("orient.onnx", []string{"x"}, []string{"p"}, tc.Orient); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("indra: orient: %w", err)
 	}
