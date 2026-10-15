@@ -520,14 +520,16 @@ func splitLine(v *Vocab, box [4]float64, r recLine, gap float64, at []float64) [
 		var ids []int
 		var xs []float64
 		for _, tk := range sg {
+			// Keep space tokens in the text (pipeline.py _decode uses all
+			// tokens); only the box geometry ignores them.
+			ids = append(ids, tk.ID)
 			if tk.ID == 0 || tk.ID == spaceID {
 				continue
 			}
-			ids = append(ids, tk.ID)
 			xs = append(xs, tk.X)
 		}
-		text := v.Decode(ids)
-		if strings.TrimSpace(text) != "" && len(xs) > 0 {
+		text := strings.TrimSpace(v.Decode(ids))
+		if text != "" && len(xs) > 0 {
 			mn, mx := xs[0], xs[0]
 			for _, x := range xs[1:] {
 				mn, mx = math.Min(mn, x), math.Max(mx, x)
