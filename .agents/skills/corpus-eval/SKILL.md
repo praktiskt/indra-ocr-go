@@ -66,7 +66,7 @@ Quick divergence harness pattern (throwaway `_test.go`, never commit):
 Score with bag-of-words recall: lowercase, `[A-Za-z0-9]+` tokens,
 GT filtered to full-match words, hit = GT word present in predicted set.
 
-## Brutal-print gauntlet (T1, 150 pages, Oct 2026)
+## Brutal-print gauntlet (T1, 150 pages)
 
 Built because FUNSD (0.86) is too clean to show receipt/photo/CJK failure.
 Lives OUTSIDE the repo in a local scratch dir, e.g.
@@ -116,8 +116,8 @@ Failure classes mapped (eyeballed dumps):
    Detection + digits right, glyphs confabulated. No CJK routing exists.
 2. Orient false positive on photo receipts: upright photo + `rot=180`
    (>0.95 conf) = whole page garbage. Dark top background suspected bias.
-   FIXED Oct 2026: true rotations score >=0.998 vs FP 0.954, so
-   `OrientMin` 0.95 -> 0.98. cord 0.6810 -> 0.7055, FUNSD unchanged.
+   Status: handled — true rotations score >=0.998 vs FP 0.954, so
+   `OrientMin` sits at 0.98 (cord +2.5pp, FUNSD neutral).
 3. Strong perspective -> det collapse (~29 vs ~100 lines) + skew misread.
    No perspective path in pipeline.
 4. Blur/noise/downscale -> graceful rec degrade (0.46-0.63).
@@ -137,15 +137,15 @@ Failure classes mapped (eyeballed dumps):
 - Parallel rec sessions: rejected. Rec saturates cores at 8 threads;
   16-thread single-session run collapses 248ms -> 681ms. More sessions =
   more contention for uncertain gain.
-- Incremental warp walks (Oct 2026): `sharpRows`/`rotateRows`/`resizeLinearRows`
+- Incremental warp walks: `sharpRows`/`rotateRows`/`resizeLinearRows`
   advance coords by addition instead of recomputing per pixel. Tilt sweep
   13/13 identical to 1e-4deg; rec texts bit-identical on 4 testdata pages;
   corpus neutral (0.8616). skew -16%, rotate -21%, crops -10%. Safe pattern
   for future warp-math work (drift ~1e-11px, needs same A/B proof each time).
-- Order `tab` head pruned (Oct 2026): allocated+computed, never read (tables
+- Order `tab` head pruned: allocated+computed, never read (tables
   render geometrically). a/cls/same bit-identical at N=43/138/400. No win at
   N=138, ~4% order-stage at N=400 + drops up to ~2MB dead alloc. Kept as hygiene.
-- Gauntlet scope (Oct 2026): Latin print + receipts + photo warp covered;
+- Gauntlet scope: Latin print + receipts + photo warp covered;
   CJK/handwriting/scene-text are known voids, quantified not fixed. CJK pages
   score 0.4-0.6 on digits alone.
 
