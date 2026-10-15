@@ -8,4 +8,3 @@ func init() {
 	fillInkRows = fillInkRowsScalar
 	inkSet1Fn = inkSet1Scalar
 }
-

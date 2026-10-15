@@ -5,19 +5,34 @@ package indra
 // AMD64 SIMD fast paths for fillInk and the CropLine ink conversion,
 // compiled only under GOEXPERIMENT=simd. Bit-identical to the scalar bodies:
 // uint8 widened exactly, float32 division per IEEE, and the 1-x expression
-// computed in the same order. Only enabled when the float vector has 16
-// lanes (AVX-512); other vector sizes keep the scalar path.
+// computed in the same order. Only enabled when the running CPU supports
+// AVX-512 (checked at init time); otherwise the scalar path stays installed.
 
 import "simd/archsimd"
 
 func init() {
+	// No vector instruction may execute before this CPU check:
+	// BroadcastFloat32x16 compiles to an EVEX-encoded ZMM op, which SIGILLs
+	// on a CPU without AVX-512. A vector type's Len() is a compile-time
+	// constant on amd64 (always 16), so it cannot detect the CPU; gate on
+	// the runtime feature check instead.
+	if archsimd.X86.AVX512() {
+		enableFillSimd()
+	}
+}
+
+// enableFillSimd installs the AVX-512 kernels. It is kept out of init and
+// marked noinline so the EVEX instructions that materialize the broadcast
+// constants can only ever be reached once archsimd.X86.AVX512() is true;
+// an inlined body would still sit behind the branch, but keeping it separate
+// makes the guarantee independent of the inliner.
+//
+//go:noinline
+func enableFillSimd() {
 	c255fFill = archsimd.BroadcastFloat32x16(255)
 	oneVecFill = archsimd.BroadcastFloat32x16(1)
-	var probe archsimd.Float32x16
-	if got := probe.Len(); got == 16 {
-		fillInkRows = fillInkRowsSimd
-		inkSet1Fn = inkSet1Simd
-	}
+	fillInkRows = fillInkRowsSimd
+	inkSet1Fn = inkSet1Simd
 }
 
 var (

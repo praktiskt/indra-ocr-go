@@ -138,7 +138,10 @@ each: throughput plateaus by then, and each extra worker costs a handle
 Building with `GOEXPERIMENT=simd` (Go 1.27+) replaces the per-pixel ink
 conversions (`fillInk` and `CropLine`'s ink map) with AVX-512 fast paths.
 They are bit-identical to the scalar results on every corpus page; without
-the experiment the library compiles and runs the scalar code. `Pool` also
+the experiment the library compiles and runs the scalar code. The AVX-512
+kernels are selected at runtime (via a CPU feature check), so a
+`GOEXPERIMENT=simd` binary still runs the scalar code on CPUs without
+AVX-512 instead of trapping. `Pool` also
 gains `CallFiles(paths)`: parallel file decode feeding the pipelined pool,
 the full equivalent of the reference `convert_many`.
 
