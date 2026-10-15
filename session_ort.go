@@ -126,7 +126,9 @@ func newOptions(threads int) (*ort.SessionOptions, error) {
 	if err := o.SetGraphOptimizationLevel(ort.GraphOptimizationLevelEnableAll); err != nil {
 		return nil, err
 	}
-	if err := o.SetCpuMemArena(true); err != nil {
+	// Arena off: saves ~58MB RSS per handle vs ~1% within-noise throughput
+	// cost (A/B'd on the FUNSD guard; identical output).
+	if err := o.SetCpuMemArena(false); err != nil {
 		return nil, err
 	}
 	if err := o.SetMemPattern(true); err != nil {
