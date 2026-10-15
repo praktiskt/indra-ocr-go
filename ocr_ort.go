@@ -179,7 +179,10 @@ func (o *OCR) Recognize(g *Gray, boxes [][4]float32) []recLine {
 			widths[i] = w
 		}
 	}
-	for _, batch := range WidthBatches(widths, 64) {
+	// Fine-grained width batches create many distinct (B,Wm) session shapes;
+	// ORT retains per-shape allocations (~the whole leak), so batch on a
+	// coarse 512px grid: bit-identical output, equal speed, less RSS.
+	for _, batch := range WidthBatches(widths, 512) {
 		idx := batch
 		lines := make([][]float32, len(idx))
 		hs := make([]int, len(idx))

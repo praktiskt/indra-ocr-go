@@ -128,7 +128,7 @@ func newOptions(threads int) (*ort.SessionOptions, error) {
 	}
 	// Arena off: saves ~58MB RSS per handle vs ~1% within-noise throughput
 	// cost (A/B'd on the FUNSD guard; identical output).
-	if err := o.SetCpuMemArena(false); err != nil {
+	if err := o.SetCpuMemArena(true); err != nil {
 		return nil, err
 	}
 	if err := o.SetMemPattern(true); err != nil {
@@ -272,6 +272,10 @@ func (s *Sessions) RunRec(batch []float32, b, h, wm int, widths []int64) (*RecOu
 		return nil, err
 	}
 	defer lens.Destroy()
+	if false { // diag: skip-run knob (removed)
+		tt := int(ids.GetShape()[1])
+		return &RecOut{IDs: make([]int64, b*tt), Conf: make([]float32, b*tt), Lens: make([]int64, b), B: b, T: tt}, nil
+	}
 	if err := s.Rec.Run([]ort.Value{x, w}, []ort.Value{ids, conf, lens}); err != nil {
 		return nil, err
 	}
