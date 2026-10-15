@@ -767,6 +767,10 @@ func EstimateSkew(g *Gray) float64 {
 		rad := a * math.Pi / 180
 		return sharpRows(sm.Pix, sm.W, sm.H, math.Cos(rad), math.Sin(rad), cx, cy)
 	}
+	sharpMid := func(a float64) float64 {
+		rad := a * math.Pi / 180
+		return sharpRowsStride(sm.Pix, sm.W, sm.H, math.Cos(rad), math.Sin(rad), cx, cy, 2)
+	}
 	evalAllCoarse := func(angles []float64) []float64 {
 		vals := make([]float64, len(angles))
 		var wg sync.WaitGroup
@@ -775,6 +779,19 @@ func EstimateSkew(g *Gray) float64 {
 			go func(i int, a float64) {
 				defer wg.Done()
 				vals[i] = sharpCoarse(a)
+			}(i, a)
+		}
+		wg.Wait()
+		return vals
+	}
+	evalAllCoarse2 := func(angles []float64) []float64 {
+		vals := make([]float64, len(angles))
+		var wg sync.WaitGroup
+		for i, a := range angles {
+			wg.Add(1)
+			go func(i int, a float64) {
+				defer wg.Done()
+				vals[i] = sharpMid(a)
 			}(i, a)
 		}
 		wg.Wait()
@@ -817,7 +834,7 @@ func EstimateSkew(g *Gray) float64 {
 	for a := best - 1.0; a <= best+1.000001; a += 0.5 {
 		mid = append(mid, a)
 	}
-	mv := evalAll(mid)
+	mv := evalAllCoarse2(mid)
 	midB, midV := best, bestV
 	for i := range mid {
 		if mv[i] > midV {
