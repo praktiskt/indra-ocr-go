@@ -146,16 +146,23 @@ Failure classes mapped (eyeballed dumps):
 - Parallel rec sessions: rejected. Rec saturates cores at 8 threads;
   16-thread single-session run collapses 248ms -> 681ms. More sessions =
   more contention for uncertain gain.
-- Rec int8 static quant: rejected. Best config (`rec_static_int8.onnx`:
-  QDQ per-channel weights, QUInt8, act-symmetric, corpus-diverse calibration)
-  = 1.25x rec (364 vs 456 ms) but corpus recall 0.8538 vs 0.8616 (-0.78pp,
-  12 pages >5pp worse). No layer exclusion / reduce_range / calibration set
-  recovered recall (exclusions non-monotonic). QOperator, dynamic-quant
-  (3x slower), onnx-simplify (no-op) all worse. Entropy/Percentile cal OOMs
-  (ORT collectors retain raw activations; cal max batch 51 x width 1600).
-  Ceiling ~1.25x: 52 Conv / 0 MatMul + DQ/Q overhead on unquantizable
-  pointwise ops (Zen4 has avx512_vnni). Don't retry without a new scheme
-  (per-channel activations, mixed precision on stem/head).
+- Rec int8 static quant: ACCEPTED (supersedes the earlier rejection in git
+  history). The old "1.25x / -0.78pp" was measured at 4+ intra-op threads,
+  where int8 has no edge (fp32 scales with threads, VNNI does not). At the
+  pool's 1 thread/worker int8 rec is ~2.4x (t2 1.8x, t4 1.3x). Accuracy was
+  recoverable too, via three choices: quantize the RAW graph (quant_pre_process
+  decomposes HardSwish and quantizes more tensors -> worse on both axes), use
+  ASYMMETRIC activations (ActivationSymmetric=False, ~+0.6pp vs symmetric), and
+  keep the stem + first blocks FP32. Shipped config (`tools/quantize_rec.py`,
+  byte-reproducible): QDQ per-channel, QUInt8/QInt8 MinMax, asym, stem+blocks
+  0-1 FP32. FUNSD 0.9134 vs 0.9150 (-0.16pp), 2/199 pages >5pp worse, 0 >10pp;
+  gauntlet within 0.5pp (better on cord/indic, -0.5pp degraded/photo); pool
+  17.8 -> 22.3 pages/s (+25%), peak RSS -13%. Keeping more leading blocks FP32
+  trades speed for accuracy roughly monotonically (stem+blocks0-3: 21.4 p/s,
+  -0.05pp; stem only: 23.2 p/s, -0.41pp but -2/-2.5pp on degraded/photo).
+  Entropy/Percentile cal still fails on the dynamic-shape batches. QOperator,
+  dynamic-quant all worse. FP8: dead on CPU - no ORT CPU fp8 kernels and no fp8
+  hardware on Zen4 (avx512_vnni only).
 - Pipeline overlap: accepted. `OCR.CallAll`/`Pool.CallAll` run per-page stages
   (orient+det / rec / assemble) as a 3-stage goroutine pipeline, one page per
   stage, sessions partitioned by stage. Output bit-identical to per-page `Call`
@@ -197,6 +204,10 @@ Failure classes mapped (eyeballed dumps):
   identical-or-neutral output, not just "tests pass".
 - Perf work reports time AND peak RSS. Worker count drives memory ~linearly
   (~120-260MB/handle); a time-only sweep hides multi-GB regressions.
+- Measure speedups at the DEPLOYMENT thread count. int8 and fp32 cross:
+  int8 rec is 2.4x at 1 thread (pool) but 1.3x at 4 and ~1.0x at 8, because
+  fp32 scales with threads while VNNI saturates at one. A speedup measured at
+  4+ threads can invert the decision (this is how int8 got wrongly rejected).
 - 4 testdata pages are smoke only. Corpus decides.
 - Concurrency: ORT sessions are NOT safe for concurrent `Run`. Every parallel
   path must give each concurrent Run its own session set, and prove

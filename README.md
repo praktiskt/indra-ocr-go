@@ -4,6 +4,8 @@ Native Go port of the [Indra OCR pipeline](https://github.com/datalab-to/indra) 
 
 ~1M-parameter recognizer plus detector / ordering / orientation models on ONNX Runtime, CPU only.
 
+The recognizer ships as a mixed-precision int8 build (stem + first two blocks kept FP32): ~2.4x faster than FP32 at the pool's one-thread-per-worker setting for ~0.15pp less word recall. See [`tools/`](tools/README.md) for the quantization recipe.
+
 ## Requirements
 
 - Go 1.26+
