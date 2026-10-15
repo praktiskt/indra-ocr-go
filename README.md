@@ -66,7 +66,8 @@ pages := ocr.CallAll(grays) // []*Gray -> []*Page, same order
 ## Pool (concurrent)
 
 ```go
-pool, err := indra.NewPool(4, 4) // 4 workers, 4 threads each
+// Host-tuned default: half the CPUs as single-threaded workers.
+pool, err := indra.NewPoolAuto()
 if err != nil {
     panic(err)
 }
@@ -78,6 +79,21 @@ pages = pool.CallAll(grays)     // batch: spreads pages over workers,
                                 // pipelining stages within each worker
 ```
 
+Override anything with the builder (all fields optional):
+
+```go
+pool, err := indra.NewPoolBuilder().
+    Workers(6).                 // 0 = auto (AutoWorkers)
+    Threads(1).                 // intra-op threads per model
+    MemBudget(2 << 30).         // cap workers to ~2GB (PerHandleBytes each)
+    Build()
+```
+
+`NewPoolAuto` picks `AutoWorkers()` = `NumCPU/2` workers with one thread
+each: throughput plateaus by then, and each extra worker costs a handle
+(~120-260MB). `MemBudget` trades workers for a memory ceiling; a few pages of
+`Call` or `CallAll` per pool is the intended use.
+
 ## API
 
 | Function | Description |
@@ -85,7 +101,11 @@ pages = pool.CallAll(grays)     // batch: spreads pages over workers,
 | `InitLib()` | Initialize ONNX Runtime library |
 | `NewOCR(threads)` | Create OCR pipeline |
 | `(*OCR).CallAll(pages)` | Batch OCR on one handle, stages pipelined across pages |
-| `NewPool(workers, threads)` | Create concurrent pool |
+| `NewPool(workers, threads)` | Create concurrent pool (explicit sizing) |
+| `NewPoolAuto()` | Pool sized for the host (AutoWorkers, 1 thread each) |
+| `NewPoolBuilder()` | Chainable builder: Workers/Threads/ThreadsPerModel/MemBudget |
+| `AutoWorkers()` | Default worker count (NumCPU/2) |
+| `PerHandleBytes` | Estimated resident memory per worker (budget unit) |
 | `(*Pool).CallAll(pages)` | Batch OCR across pool workers, pipelined within each |
 | `VocabFromJSON(s)` | Parse vocabulary JSON |
 | `NewVocab(chars)` | Create vocabulary |

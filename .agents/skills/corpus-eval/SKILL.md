@@ -164,6 +164,15 @@ Failure classes mapped (eyeballed dumps):
   (~18 p/s) with 4-6 workers vs 8-12 (fewer session sets). This is *stage*
   overlap, NOT parallel rec sessions (see above) - only one page is in rec
   at a time.
+- Pool sizing: default is `NumCPU/2` workers x 1 thread (`AutoWorkers`,
+  `NewPoolAuto`/`NewPoolBuilder`; explicit `NewPool` still available). Worker
+  count dominates intra-op threads: pool configs with threads=2 lose
+  (6w x 2t 15.4 vs 6w x 1t 17.4 pages/s on 16 cores). Throughput plateaus from
+  ~6 to ~16 workers (~17.5 p/s), so half the cores is the throughput knee with
+  headroom for the pipeline's small stages. RAM scales ~linearly with workers:
+  ~120MB/handle on small pages, ~260MB on large, plus a ~380MB runtime/first-
+  handle floor - hence `MemBudget` (caps workers at `PerHandleBytes`=256MB
+  each; handles only, not in-flight pages). Measure memory too, not just time.
 - Incremental warp walks: `sharpRows`/`rotateRows`/`resizeLinearRows`
   advance coords by addition instead of recomputing per pixel. Tilt sweep
   13/13 identical to 1e-4deg; rec texts bit-identical on 4 testdata pages;
@@ -186,6 +195,8 @@ Failure classes mapped (eyeballed dumps):
   corpus numbers or a new eval regime that covers their target inputs.
 - Numeric changes (resize, search schedules, thresholds) need A/B proof of
   identical-or-neutral output, not just "tests pass".
+- Perf work reports time AND peak RSS. Worker count drives memory ~linearly
+  (~120-260MB/handle); a time-only sweep hides multi-GB regressions.
 - 4 testdata pages are smoke only. Corpus decides.
 - Concurrency: ORT sessions are NOT safe for concurrent `Run`. Every parallel
   path must give each concurrent Run its own session set, and prove

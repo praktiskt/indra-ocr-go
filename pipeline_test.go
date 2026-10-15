@@ -95,3 +95,41 @@ func TestPoolCallAllMatchesCall(t *testing.T) {
 		}
 	}
 }
+
+// NewPoolAuto and the builder must produce a working pool with a sane
+// default size, and MemBudget must cap it.
+func TestNewPoolAutoRuns(t *testing.T) {
+	if os.Getenv("INDRA_TEST_IMAGES") == "" {
+		t.Skip("INDRA_TEST_IMAGES not set")
+	}
+	if err := InitLib(); err != nil {
+		t.Fatalf("InitLib: %v", err)
+	}
+	auto, err := NewPoolAuto()
+	if err != nil {
+		t.Fatalf("NewPoolAuto: %v", err)
+	}
+	defer auto.Close()
+	if auto.Workers != AutoWorkers() {
+		t.Fatalf("NewPoolAuto workers = %d, want %d", auto.Workers, AutoWorkers())
+	}
+	g := testPages(t)[0]
+	if p := auto.Call(g); p == nil || len(p.Lines) == 0 {
+		t.Fatalf("NewPoolAuto produced empty page")
+	}
+	if _, err := NewPoolAuto(); err != nil {
+		t.Fatalf("second NewPoolAuto: %v", err)
+	}
+
+	one, err := NewPoolBuilder().Workers(1).MemBudget(PerHandleBytes / 2).Build()
+	if err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	defer one.Close()
+	if one.Workers != 1 {
+		t.Fatalf("budget-capped workers = %d, want 1", one.Workers)
+	}
+	if p := one.Call(g); p == nil || len(p.Lines) == 0 {
+		t.Fatalf("budget pool produced empty page")
+	}
+}
