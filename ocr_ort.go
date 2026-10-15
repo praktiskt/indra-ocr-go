@@ -281,13 +281,13 @@ func (o *OCR) Upright(g *Gray) (*Gray, int, float64) {
 	kCh := make(chan int, 1)
 	aCh := make(chan float64, 1)
 	go func() { kCh <- o.Orientation(g) }()
-	go func() { aCh <- skewEstimator(g) }()
+	go func() { aCh <- EstimateSkewPy(g) }()
 	k := <-kCh
 	var a float64
 	if k != 0 {
 		<-aCh // discard pre-rotation estimate
 		g = Rot90CCW(g, -k)
-		a = skewEstimator(g)
+		a = EstimateSkewPy(g)
 	} else {
 		a = <-aCh
 	}
