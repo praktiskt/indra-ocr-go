@@ -163,6 +163,17 @@ Failure classes mapped (eyeballed dumps):
   Entropy/Percentile cal still fails on the dynamic-shape batches. QOperator,
   dynamic-quant all worse. FP8: dead on CPU - no ORT CPU fp8 kernels and no fp8
   hardware on Zen4 (avx512_vnni only).
+- Rec AdaRound / activation MSE-clip: tried, no meaningful gain; don't re-run
+  the standard forms. Layer-wise AdaRound (ONNX + numpy, layer output Gram:
+  L(h)=sum_c s_c^2 (h_c-f_c)^T G_c (h_c-f_c), sequential binary coordinate
+  descent from round-to-nearest) cut per-layer output MSE 63% (14% of weights
+  re-rounded) but moved FUNSD word recall only +0.04pp (b1) / +0.09pp (full
+  int8); line-exact and char-edit distance flat. MSE-optimal activation ranges
+  beat ORT MinMax on 0/127 tensors (ranges already tight). So the residual int8
+  loss is intrinsic to 8-bit activation quant, not weight rounding - the FP32
+  stem/blocks0-1 are what buy the last ~0.2pp. Untried lever, if ever needed:
+  quantized-input reconstruction (minimize ||conv(W_hat, Xq) - conv(W, X)||^2
+  with the model's own activation quantiser), which can see activation error.
 - Pipeline overlap: accepted. `OCR.CallAll`/`Pool.CallAll` run per-page stages
   (orient+det / rec / assemble) as a 3-stage goroutine pipeline, one page per
   stage, sessions partitioned by stage. Output bit-identical to per-page `Call`
