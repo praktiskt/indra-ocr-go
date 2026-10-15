@@ -301,6 +301,11 @@ func (o *OCR) Call(g *Gray) *Page {
 	g, k, skew := o.Upright(g)
 	boxes := o.Detect(g)
 	rec := o.Recognize(g, boxes)
+	return o.finish(g, k, skew, boxes, rec)
+}
+
+// finish assembles results and undoes deskew on the output geometry.
+func (o *OCR) finish(g *Gray, k int, skew float64, boxes [][4]float32, rec []recLine) *Page {
 	wh := [2]float64{float64(g.W), float64(g.H)}
 	p := o.Assemble(wh, boxes, rec)
 	p.Rotation, p.Skew = 90*k, math.Round(skew*100)/100
@@ -313,6 +318,57 @@ func (o *OCR) Call(g *Gray) *Page {
 		}
 	}
 	return p
+}
+
+// CallAll OCRs pages in order, overlapping the per-page stages so the
+// recognizer (the bottleneck) runs concurrently with orientation+detection of
+// the next page and assembly of the previous one. Results keep input order.
+//
+// ONNX Runtime sessions are not safe for concurrent Run, so each stage is a
+// single goroutine that owns its stage's sessions (orient+det / rec / order):
+// at most one page is inside a given stage at a time. Upright's own skew and
+// orientation work is unaffected.
+func (o *OCR) CallAll(gs []*Gray) []*Page {
+	out := make([]*Page, len(gs))
+	if len(gs) == 0 {
+		return out
+	}
+	type detRes struct {
+		idx   int
+		g     *Gray
+		boxes [][4]float32
+		k     int
+		skew  float64
+	}
+	type recRes struct {
+		detRes
+		rec []recLine
+	}
+	in := make(chan detRes, 2)
+	mid := make(chan recRes, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { // recognize: consumes detects, feeds assembly
+		defer wg.Done()
+		for d := range in {
+			mid <- recRes{detRes: d, rec: o.Recognize(d.g, d.boxes)}
+		}
+		close(mid)
+	}()
+	go func() { // assemble: the tail of each page
+		defer wg.Done()
+		for r := range mid {
+			out[r.idx] = o.finish(r.g, r.k, r.skew, r.boxes, r.rec)
+		}
+	}()
+	for i, g := range gs { // orient + detect
+		g2, k, skew := o.Upright(g)
+		boxes := o.Detect(g2)
+		in <- detRes{idx: i, g: g2, boxes: boxes, k: k, skew: skew}
+	}
+	close(in)
+	wg.Wait()
+	return out
 }
 
 // Assemble splits wide-gap lines, orders, and renders markdown.

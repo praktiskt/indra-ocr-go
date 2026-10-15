@@ -57,6 +57,47 @@ func (p *Pool) Call(g *Gray) *Page {
 	return o.Call(g)
 }
 
+// CallAll OCRs pages, spreading them over the pool's workers and pipelining
+// stages within each worker (see OCR.CallAll). Results keep input order.
+// For a fixed worker count this sustains more pages/s than looping Call,
+// because the wide, idle-non-rec footprint of each worker is filled.
+func (p *Pool) CallAll(gs []*Gray) []*Page {
+	out := make([]*Page, len(gs))
+	n := len(gs)
+	if n == 0 {
+		return out
+	}
+	// A few chunks per worker keeps every pipeline fed and balances load.
+	chunk := (n + p.Workers*4 - 1) / (p.Workers * 4)
+	if chunk < 1 {
+		chunk = 1
+	}
+	var next int64
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for w := 0; w < p.Workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			o := <-p.ch
+			defer func() { p.ch <- o }()
+			for {
+				mu.Lock()
+				lo := next
+				next += int64(chunk)
+				mu.Unlock()
+				if int(lo) >= n {
+					return
+				}
+				hi := min(int(lo)+chunk, n)
+				copy(out[lo:hi], o.CallAll(gs[lo:hi]))
+			}
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
 // Close releases all sessions.
 func (p *Pool) Close() {
 	for {

@@ -52,6 +52,17 @@ func main() {
 }
 ```
 
+## Batch (pipelined)
+
+`CallAll` OCRs many pages on one handle, overlapping the recognizer (the
+bottleneck) with orientation/detection of the next page and assembly of the
+previous one. Results keep input order and are identical to calling `Call`
+per page, but a single handle sustains ~1.3x the pages/s.
+
+```go
+pages := ocr.CallAll(grays) // []*Gray -> []*Page, same order
+```
+
 ## Pool (concurrent)
 
 ```go
@@ -61,7 +72,10 @@ if err != nil {
 }
 defer pool.Close()
 
-page := pool.Call(gray)
+page := pool.Call(gray)         // one page, blocks for a free worker
+
+pages = pool.CallAll(grays)     // batch: spreads pages over workers,
+                                // pipelining stages within each worker
 ```
 
 ## API
@@ -70,7 +84,9 @@ page := pool.Call(gray)
 |----------|-------------|
 | `InitLib()` | Initialize ONNX Runtime library |
 | `NewOCR(threads)` | Create OCR pipeline |
+| `(*OCR).CallAll(pages)` | Batch OCR on one handle, stages pipelined across pages |
 | `NewPool(workers, threads)` | Create concurrent pool |
+| `(*Pool).CallAll(pages)` | Batch OCR across pool workers, pipelined within each |
 | `VocabFromJSON(s)` | Parse vocabulary JSON |
 | `NewVocab(chars)` | Create vocabulary |
 | `DecodeDet(out, h, w)` | Decode detector output |
