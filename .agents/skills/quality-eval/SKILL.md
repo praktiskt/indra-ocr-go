@@ -179,17 +179,17 @@ Two runners, one scorer:
    ```sh
    python bench/opb_indra.py --out runs/py --models <models> --mode ocr --procs 8
    ```
-   **Use `--mode ocr`.** With `--mode auto` upstream reads the embedded PDF
-   text layer (`page.source` `text`/`hybrid`); the Go port is OCR-only (no
-   text-layer path), so `auto` is a capability gap, not a like-for-like OCR
-   comparison.
+   **Use `--mode ocr`** for a like-for-like OCR comparison; the port's `-pdf`
+   gives the matching `auto` text-layer path on the Go side. With `--mode auto`
+   upstream reads the embedded PDF text layer (`page.source` `text`/`hybrid`) —
+   compare that against the port's `CallPDF` / `bench/opb -pdf`, not its OCR.
 2. **Go port** — committed harness in [`bench/opb/`](../../../bench/opb/) (Go
    runner + `uv`-run prep/score). `bench/opb/run.sh <outdir>` does all three:
    - prep: render each page to PNG at **dpi 200** (matching indra) with
      pypdfium2; `.png` docs pass through; write a `manifest.json`.
    - OCR: `bench/opb/main.go` reads the manifest, runs the pool **one page at a
      time**, and writes `{page_id, markdown, blocks:[{label,bbox,text}]}` JSONL
-     (flags: `-furniture`, `-math`; upstream's `--math` is 2-5x slower).
+     (flags: `-furniture`, `-math`, `-pdf`; upstream's `--math` is 2-5x slower).
    - score: `bench/opb/score.py` builds the `{html, blocks}` outputs (Go block
      classes map 1:1 onto the benchmark's labels, `Table-Of-Contents` -> `text`)
      and prints the summary; the full one lands in `<name>_summary.json`.

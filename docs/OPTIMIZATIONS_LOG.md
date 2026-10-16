@@ -443,10 +443,10 @@ with `cv2.setNumThreads(1)`:
   `OCR.Furniture` / `PoolBuilder.Furniture(true)` is the switch.
 - Upstream's published numbers reproduce locally: `auto` 61.6 (published 62.1),
   OCR-only 57.1 (57.5).
-- **Capability gap, not a regression:** upstream `mode=auto` reads embedded PDF
-  text layers (`source` = text/hybrid); the Go port is OCR-only, so on
-  digital-born PDFs upstream scores higher. Compare with `--mode ocr`; the
-  `auto` difference is a missing feature, not a slowdown.
+- **Text layer (was a capability gap):** upstream `mode=auto` reads embedded
+  PDF text layers (`source` = text/hybrid); the port now does too, via the
+  embedded PDFium (`CallPDF` / `bench/opb -pdf`), reaching 0.6048 vs upstream
+  `auto` 0.6155. Compare OCR-only with `--mode ocr`.
 
 ## Reference numbers (dev box)
 
