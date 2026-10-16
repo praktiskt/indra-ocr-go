@@ -406,7 +406,7 @@ func pdfProcess(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun,
 		}
 		seg := cs[start:end]
 		start = end
-		seg = foldSpacingAcute(seg)
+		seg = foldSpacingAccents(seg)
 		var ink []TextChar
 		for _, c := range seg {
 			if !unicode.IsSpace(c.Ch) {
@@ -434,36 +434,53 @@ func pdfProcess(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun,
 	return g, runs, nChars, nRot, invisible, true
 }
 
-// acuteCompose maps a base letter to its precomposed acute form.
-var acuteCompose = map[rune]rune{
-	'a': 'á', 'A': 'Á', 'c': 'ć', 'C': 'Ć', 'e': 'é', 'E': 'É', 'i': 'í', 'I': 'Í',
-	'l': 'ĺ', 'L': 'Ĺ', 'n': 'ń', 'N': 'Ń', 'o': 'ó', 'O': 'Ó', 'r': 'ŕ', 'R': 'Ŕ',
-	's': 'ś', 'S': 'Ś', 'u': 'ú', 'U': 'Ú', 'y': 'ý', 'Y': 'Ý', 'z': 'ź', 'Z': 'Ź',
-	'g': 'ǵ', 'G': 'Ǵ', 'w': 'ẃ', 'W': 'Ẃ', 'æ': 'ǽ', 'Æ': 'Ǽ',
-	'ı': 'í', // dotless i (Turkish/legacy) before an acute
+// accentCompose maps a spacing diacritic that PDFs place before its base letter
+// to the base -> precomposed characters it forms. Only diacritics that are
+// unambiguous accents (acute, diaeresis, double acute, cedilla) are here; those
+// commonly used as math operators between letters (^ ~ ` ¯ ˆ, SMALL TILDE) are
+// deliberately excluded — folding them would corrupt equations.
+var accentCompose = map[rune]map[rune]rune{
+	'\u00b4': { // ACUTE ACCENT
+		'a': 'á', 'A': 'Á', 'c': 'ć', 'C': 'Ć', 'e': 'é', 'E': 'É', 'i': 'í', 'I': 'Í',
+		'l': 'ĺ', 'L': 'Ĺ', 'n': 'ń', 'N': 'Ń', 'o': 'ó', 'O': 'Ó', 'r': 'ŕ', 'R': 'Ŕ',
+		's': 'ś', 'S': 'Ś', 'u': 'ú', 'U': 'Ú', 'y': 'ý', 'Y': 'Ý', 'z': 'ź', 'Z': 'Ź',
+		'g': 'ǵ', 'G': 'Ǵ', 'w': 'ẃ', 'W': 'Ẃ', 'æ': 'ǽ', 'Æ': 'Ǽ',
+		'ı': 'í', // dotless i (Turkish/legacy) before an acute
+	},
+	'\u00a8': { // DIAERESIS
+		'a': 'ä', 'A': 'Ä', 'e': 'ë', 'E': 'Ë', 'i': 'ï', 'I': 'Ï',
+		'o': 'ö', 'O': 'Ö', 'u': 'ü', 'U': 'Ü', 'y': 'ÿ', 'Y': 'Ÿ',
+	},
+	'\u02dd': { // DOUBLE ACUTE
+		'o': 'ő', 'O': 'Ő', 'u': 'ű', 'U': 'Ű',
+	},
+	'\u00b8': { // CEDILLA
+		'c': 'ç', 'C': 'Ç', 's': 'ş', 'S': 'Ş', 't': 'ţ', 'T': 'Ţ', 'd': 'ḑ', 'D': 'Ḑ',
+	},
 }
 
-// foldSpacingAcute composes a spacing acute (U+00B4) that PDFs place just before
-// its base letter: pdfium emits the accent glyph in content order, so "Cicho´n"
-// comes out where the recognizer (whose vocab is NFC) gives "Cichoń". This
-// deviates from upstream indra, which does not normalize the text layer — see
-// docs/DEVIATIONS.md.
+// foldSpacingAccents composes a spacing diacritic that PDFs place just before its
+// base letter: pdfium emits the accent glyph in content order, so "Cicho´n" and
+// "Gr¨obner" come out where the recognizer (whose vocab is NFC) gives "Cichoń"
+// and "Gröbner". This deviates from upstream indra, which does not normalize the
+// text layer — see docs/DEVIATIONS.md.
 //
-// The acute is composed only when it sits between two letters (prev letter,
-// next composable letter), which is every real accent case here; a U+00B4 after
-// a non-letter (or before punctuation) is a prime/symbol and is left as-is, e.g.
-// "SplExtp´," or "r´, ´s".
-func foldSpacingAcute(seg []TextChar) []TextChar {
+// A diacritic is composed only when it sits between two letters (a letter before,
+// a composable letter after), which is every real accent case here; one after a
+// non-letter (a prime/symbol, e.g. "SplExtp´,") is left as-is. Math operators
+// are not in the table, so they are never touched.
+func foldSpacingAccents(seg []TextChar) []TextChar {
 	out := make([]TextChar, 0, len(seg))
 	for i := 0; i < len(seg); i++ {
-		if seg[i].Ch == '\u00b4' && i > 0 && i+1 < len(seg) &&
-			unicode.IsLetter(seg[i-1].Ch) {
-			if p, ok := acuteCompose[seg[i+1].Ch]; ok {
-				nx := seg[i+1]
-				nx.Ch = p
-				out = append(out, nx)
-				i++
-				continue
+		if i > 0 && i+1 < len(seg) && unicode.IsLetter(seg[i-1].Ch) {
+			if m := accentCompose[seg[i].Ch]; m != nil {
+				if p, ok := m[seg[i+1].Ch]; ok {
+					nx := seg[i+1]
+					nx.Ch = p
+					out = append(out, nx)
+					i++
+					continue
+				}
 			}
 		}
 		out = append(out, seg[i])
