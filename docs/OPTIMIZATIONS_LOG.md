@@ -5,7 +5,7 @@ accepted or rejected it. The point is to avoid re-litigating settled questions
 and to keep the *method* honest.
 
 - **Method, guard, gauntlet, A/B procedure:** see
-  [`.agents/skills/corpus-eval/SKILL.md`](../.agents/skills/corpus-eval/SKILL.md).
+  [`.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-eval/SKILL.md).
 - **Reproduce the shipped models:** see [`tools/README.md`](../tools/README.md).
 - **Honest benchmarking:** one model/config per process, warm up, best-of-N;
   report **time and peak RSS**, measured at the **deployment** thread count
@@ -146,7 +146,7 @@ delta / baseline.
   identical on all 9 subsets (cord 0.7178, sroie 0.8456, xfund 0.9516, ...).
 - **Reading order:** the guard is bag-of-words and blind to sequence, so a
   Kendall-tau metric against FUNSD's ordered GT words was added (see the
-  corpus-eval skill). Quantization perturbs adjacency near threshold: 51/199
+  quality-eval skill). Quantization perturbs adjacency near threshold: 51/199
   FUNSD pages re-sequence (median 5 lines, pure permutation). The metric shows
   it is quality-neutral: mean tau +0.0007 on FUNSD, 0 pages worse >2pp;
   cord/xfund/alpha identical; sroie -0.0057 mean, 2/29 pages >2pp.
@@ -344,6 +344,25 @@ with `cv2.setNumThreads(1)`:
   parallelizes the skew search while the Go estimator is single-threaded on
   purpose (parallel angle eval was tried and rejected, -2.4%). Threads=2 makes
   Go skew look ~2x slower; at deployment it is ~1.2x.
+
+## Official benchmark: Omni Parse Bench (OPB)
+
+- The upstream `datalab-to/omni_parse_bench` — 2937 pages, 22 suites (arxiv
+  math, tables, forms, multi-column, multilingual, handwriting, rotation/skew,
+  old scans, tiny text...) — is the distribution the models were tuned for.
+  Method + how to run: see the quality-eval skill.
+- **OCR-only parity:** full 2937 pages, Go headline **0.5687** vs upstream
+  `--mode ocr` **0.5714** (-0.26pp) at **~2.5x lower median latency** (234 vs
+  591 ms), and Go is *ahead* on tables (+1.0pp). The only material per-tag gap
+  is `header_footer` (Go 0.146 vs 0.606, 226 tests) because Go drops page
+  furniture; every other tag is within ~0.03. The port reproduces the reference
+  pipeline on this distribution, not just on FUNSD.
+- Upstream's published numbers reproduce locally: `auto` 61.6 (published 62.1),
+  OCR-only 57.1 (57.5).
+- **Capability gap, not a regression:** upstream `mode=auto` reads embedded PDF
+  text layers (`source` = text/hybrid); the Go port is OCR-only, so on
+  digital-born PDFs upstream scores higher. Compare with `--mode ocr`; the
+  `auto` difference is a missing feature, not a slowdown.
 
 ## Reference numbers (dev box)
 

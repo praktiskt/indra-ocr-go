@@ -14,7 +14,7 @@ upstream FP32 `rec.onnx`. Everything here reproduces it.
 ## Why this exact recipe
 
 Three choices carried the accuracy (details and the A/B evidence are in
-`.agents/skills/corpus-eval/SKILL.md`):
+`.agents/skills/quality-eval/SKILL.md`):
 
 1. **Quantize the raw graph.** Do not run ORT `quant_pre_process` first. It
    decomposes `HardSwish` into `HardSigmoid`+`Mul` and quantizes more tensors,

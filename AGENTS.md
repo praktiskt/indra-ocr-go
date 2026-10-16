@@ -12,7 +12,7 @@ ONNX Runtime libraries are embedded; nothing is downloaded at runtime.
 ## Keep these documents current
 
 `AGENTS.md` (this file), [`docs/OPTIMIZATIONS_LOG.md`](docs/OPTIMIZATIONS_LOG.md)
-and [`.agents/skills/corpus-eval/SKILL.md`](.agents/skills/corpus-eval/SKILL.md)
+and [`.agents/skills/quality-eval/SKILL.md`](.agents/skills/quality-eval/SKILL.md)
 are living documents. **Update them in the same commit as the change, never
 "later":**
 
@@ -50,7 +50,7 @@ document corpus + the gauntlet.
 
 1. Read **[`docs/OPTIMIZATIONS_LOG.md`](docs/OPTIMIZATIONS_LOG.md)** (what was
    already accepted/rejected and why) and
-   **[`.agents/skills/corpus-eval/SKILL.md`](.agents/skills/corpus-eval/SKILL.md)**
+   **[`.agents/skills/quality-eval/SKILL.md`](.agents/skills/quality-eval/SKILL.md)**
    (the corpus, guard and A/B method).
 2. Run the guard: `INDRA_CORPUS_DIR=/path/to/corpus go test -run TestCorpusRecall -count=1 -v`.
 3. Reject rule: recall drop > 0.01 or > 10 pages degraded > 5 pp. Neutral + faster
@@ -97,11 +97,11 @@ document corpus + the gauntlet.
 | `skew_py.go` | python-exact skew estimator |
 | `order.go`, `layout.go` | reading order, layout blocks, markdown |
 | `docs/` | `OPTIMIZATIONS_LOG.md` (perf history) |
-| `.agents/skills/` | `corpus-eval` skill (guard, gauntlet, A/B method) |
+| `.agents/skills/` | `quality-eval` skill (guard, gauntlet, reading-order, Omni Parse Bench, A/B method) |
 
 ## More
 
 - [`README.md`](README.md) — usage/API.
 - [`docs/OPTIMIZATIONS_LOG.md`](docs/OPTIMIZATIONS_LOG.md) — perf history.
 - [`tools/README.md`](tools/README.md) — regenerating the shipped models.
-- [`.agents/skills/corpus-eval/SKILL.md`](.agents/skills/corpus-eval/SKILL.md) — evaluation method.
+- [`.agents/skills/quality-eval/SKILL.md`](.agents/skills/quality-eval/SKILL.md) — evaluation method.
