@@ -196,26 +196,29 @@ Two runners, one scorer:
 
 Full-corpus result (dev box, all 2937 pages, 8 workers x 1 thread):
 
-| run | headline | text | tables | layout | median ms |
-|---|---|---|---|---|---|
-| **Go port (OCR, `-furniture`)** | **0.5731** | 0.324 | 0.526 | 0.870 | 209 |
-| Go port (OCR, furniture dropped) | 0.5687 | 0.311 | 0.526 | 0.870 | 234 |
-| upstream `--mode ocr` | 0.5714 | 0.326 | 0.512 | 0.876 | 591 |
-| upstream `auto` | 0.6155 | 0.405 | 0.563 | 0.879 | 504 |
+| run | headline | text | tables | layout |
+|---|---|---|---|---|
+| **Go port (OCR, default)** | **0.5739** | 0.319 | 0.523 | 0.880 |
+| Go port (OCR, `+furniture`, pre-CJK) | 0.5731 | 0.324 | 0.526 | 0.870 |
+| upstream `--mode ocr` | 0.5714 | 0.326 | 0.512 | 0.876 |
+| upstream `auto` | 0.6155 | 0.405 | 0.563 | 0.879 |
 
 (Upstream's published numbers, x86 4 vCPU one-at-a-time: `auto` 62.1, OCR-only
 57.5, median 228/303 ms — my runs reproduce them within ~0.5.)
 
-With `-furniture` the port **matches upstream on OCR** (+0.17pp headline) at ~3x
-lower latency and is ahead on tables; the default drops page furniture, which is
-the whole gap (`header_footer` 0.146 -> 0.589, upstream 0.606). The `auto` row is
-higher only because it reads PDF text layers; that is a capability, not OCR.
+The port **matches upstream on OCR** at ~3x lower latency and is ahead on
+tables. CJK routing added **+0.52pp** (0.5687 before it); `-furniture` adds
+~+0.4pp (`header_footer` 0.146 -> 0.589 vs 0.606). `auto` is higher only because
+it reads PDF text layers — a capability the port now provides (`CallPDF` /
+PDFium), so it is not the like-for-like OCR target.
 
 Caveats:
-- Go markdown drops page furniture (`keepFurniture=false`) while upstream's
-  `opb_indra` passes `furniture=True`; expect a small `page_furniture` delta.
-- Go has no math/LaTeX path; math-heavy suites (arxiv math) score low for both.
-- The PNG render must be dpi 200 to match indra's rasterisation.
+- Go markdown drops page furniture by default (`-furniture` /
+  `Furniture(true)`); expect a small `page_furniture` delta.
+- Math/LaTeX is opt-in (`-math` / `OCR.Math`, ~20 MB of embedded models); the
+  math-heavy suites score low unless enabled.
+- PDF input uses the embedded PDFium (`CallPDF`, `-pdf`); `realdoc_pdfs` has
+  ~2pp run-to-run noise on its text/hybrid pages (see the log).
 
 ## Settled decisions
 
