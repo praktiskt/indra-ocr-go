@@ -210,21 +210,35 @@ func loadPDFium() error {
 
 // --- Go wrappers over the C shims (only this cgo file can see them). ---
 
-// pdfOpen loads a PDF from memory; the caller must pdfClose it.
-func pdfOpen(data []byte) (unsafe.Pointer, error) {
+// pdfOpen loads a PDF from memory and returns (document, buffer) — the caller
+// must pdfClose both. FPDF_LoadMemDocument64 does NOT copy the bytes: pdfium
+// reads them for the document's lifetime, and handing it a Go heap pointer
+// violates the cgo pointer rules (the GC may free or move it while pages are
+// still being rendered). So the bytes are copied into C memory here and freed by
+// pdfClose.
+func pdfOpen(data []byte) (unsafe.Pointer, unsafe.Pointer, error) {
 	if len(data) == 0 {
-		return nil, fmt.Errorf("indra: empty pdf")
+		return nil, nil, fmt.Errorf("indra: empty pdf")
 	}
+	buf := C.CBytes(data)
 	cs := C.CString("")
 	defer C.free(unsafe.Pointer(cs))
-	doc := C.pdfium_loadmem(unsafe.Pointer(&data[0]), C.size_t(len(data)), cs)
+	doc := unsafe.Pointer(C.pdfium_loadmem(buf, C.size_t(len(data)), cs))
 	if doc == nil {
-		return nil, fmt.Errorf("indra: pdfium could not open the document")
+		C.free(buf)
+		return nil, nil, fmt.Errorf("indra: pdfium could not open the document")
 	}
-	return unsafe.Pointer(doc), nil
+	return doc, buf, nil
 }
 
-func pdfClose(doc unsafe.Pointer) { C.pdfium_closedoc(C.FPDF_DOCUMENT(doc)) }
+func pdfClose(doc, buf unsafe.Pointer) {
+	if doc != nil {
+		C.pdfium_closedoc(C.FPDF_DOCUMENT(doc))
+	}
+	if buf != nil {
+		C.free(buf)
+	}
+}
 func pdfPageCount(doc unsafe.Pointer) int {
 	return int(C.pdfium_pagecount(C.FPDF_DOCUMENT(doc)))
 }
