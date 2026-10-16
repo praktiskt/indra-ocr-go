@@ -48,11 +48,18 @@ delta / baseline.
 - The renderer **PDFium** (BSD-3-Clause, 7.8 MB) is embedded and loaded from
   memfd like ONNX Runtime; every entry point is resolved with `dlsym`, so the Go
   module gains no PDF dependency. `loadPDFium` is lazy.
-- **Quality:** OPB `realdoc_pdfs` (88 pages, `auto`) headline **0.6942** vs
-  upstream **0.7121** (-1.8pp; text -3.6pp, layout equal). The residual is the
-  unported `pdf_order` (content order — Go orders with the order model) plus
-  minor line-count differences (~5%). The default OCR path is unaffected.
+- **Quality:** OPB `realdoc_pdfs` (88 pages, `auto`) headline ~0.68-0.70 (3
+  runs) vs upstream **0.7121** — within the +-2pp run noise below. The default
+  OCR path is unaffected.
 - `mode="ocr"` ignores the text layer; `PDFOptions.DPI` defaults to 200.
+- **`pdf_order` (content order) not shipped:** ported (`order_backtracks` +
+  `pdf_order_coherent` + content keys through the split/order) but it does not
+  help — 3 runs each on OPB `realdoc_pdfs`: ON 0.670 vs OFF 0.682, with +-2pp
+  run noise. Left as an open item; Go orders with the order model.
+- **Open: the PDF text path is not bit-reproducible** — OPB `realdoc_pdfs` flips
+  ~5/88 pages run to run (layout-class changes on text/hybrid pages). The plain
+  OCR path (PNG input) is deterministic (0/20 and the corpus dumps). Probably in
+  the `CallText` text-layer assembly; needs a root cause.
 
 ### Math / LaTeX: embedded encoder-decoder — `v0.22.0`
 
