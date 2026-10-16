@@ -1,5 +1,5 @@
-// OCR pipeline over Sessions. Port of OrtOCR in pipeline.py (sans mask.onnx,
-// script/rec_cjk routing and math: Latin/multi path only).
+// OCR pipeline over Sessions. Port of OrtOCR in pipeline.py (sans mask.onnx and
+// math: Latin/multi + CJK routing).
 package indra
 
 import (
@@ -150,20 +150,16 @@ func clampf32(v, lo, hi float32) float32 {
 	return v
 }
 
-// Recognize runs rec.onnx over line boxes, returns (text, conf, tokens).
-func (o *OCR) Recognize(g *Gray, boxes [][4]float32) []recLine {
+// lineCrop is one line's grayscale crop at rec height.
+type lineCrop struct {
+	ink []float32
+	w   int
+}
+
+// cropLines crops every box to rec height (in parallel for large pages).
+func (o *OCR) cropLines(g *Gray, boxes [][4]float32) []lineCrop {
 	n := len(boxes)
-	out := make([]recLine, n)
-	if n == 0 {
-		return out
-	}
-	// Crop all lines.
-	type crop struct {
-		ink []float32
-		w   int
-	}
-	crops := make([]crop, n)
-	widths := make([]int, n)
+	crops := make([]lineCrop, n)
 	if n >= 16 {
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, runtime.NumCPU())
@@ -174,43 +170,84 @@ func (o *OCR) Recognize(g *Gray, boxes [][4]float32) []recLine {
 				defer wg.Done()
 				fb := [4]float64{float64(b[0]), float64(b[1]), float64(b[2]), float64(b[3])}
 				ink := CropLine(g, fb, o.M.RecHeight)
-				crops[i] = crop{ink, len(ink) / o.M.RecHeight}
+				crops[i] = lineCrop{ink, len(ink) / o.M.RecHeight}
 				<-sem
 			}(i, b)
 		}
 		wg.Wait()
-		for i := range crops {
-			widths[i] = crops[i].w
-		}
 	} else {
 		for i, b := range boxes {
 			fb := [4]float64{float64(b[0]), float64(b[1]), float64(b[2]), float64(b[3])}
 			ink := CropLine(g, fb, o.M.RecHeight)
-			w := len(ink) / o.M.RecHeight
-			crops[i] = crop{ink, w}
-			widths[i] = w
+			crops[i] = lineCrop{ink, len(ink) / o.M.RecHeight}
 		}
 	}
-	// Fine-grained width batches create many distinct (B,Wm) session shapes;
-	// ORT retains per-shape allocations (~the whole leak), so batch on a
-	// coarse 512px grid: bit-identical output, equal speed, less RSS.
-	for _, batch := range WidthBatches(widths, 512) {
-		idx := batch
-		lines := make([][]float32, len(idx))
-		hs := make([]int, len(idx))
-		ws := make([]int, len(idx))
-		for k, j := range idx {
+	return crops
+}
+
+// hanziLines runs script.onnx over the crops: true where the line holds Chinese
+// characters (upstream hanzi_lines). All false without script.onnx.
+func (o *OCR) hanziLines(crops []lineCrop) []bool {
+	out := make([]bool, len(crops))
+	if len(crops) == 0 || o.S.Script == nil || o.M.VocabCJK == nil {
+		return out
+	}
+	ws := make([]int, len(crops))
+	for i := range crops {
+		ws[i] = crops[i].w
+	}
+	for _, part := range WidthBatches(ws, 512) {
+		lines := make([][]float32, len(part))
+		hs := make([]int, len(part))
+		bw := make([]int, len(part))
+		for k, j := range part {
 			lines[k] = crops[j].ink
 			hs[k] = o.M.RecHeight
-			ws[k] = crops[j].w
+			bw[k] = crops[j].w
 		}
-		batched, wOut, wm := PadBatch(lines, hs, ws)
-		ro, err := o.S.RunRec(batched, len(idx), o.M.RecHeight, wm, wOut)
+		batched, wOut, wm := PadBatch(lines, hs, bw)
+		p, err := o.S.RunScript(batched, len(part), o.M.RecHeight, wm, wOut)
+		if err != nil {
+			continue
+		}
+		for k, j := range part {
+			out[j] = p[k] > 0.5
+		}
+	}
+	return out
+}
+
+// recognizeSel runs one recognizer session over crops[sel], writing out[sel].
+// Fine-grained width batches create many distinct (B,Wm) session shapes; ORT
+// retains per-shape allocations (~the whole leak), so batch on a coarse 512px
+// grid: bit-identical output, equal speed, less RSS.
+func (o *OCR) recognizeSel(out []recLine, boxes [][4]float32, crops []lineCrop, sel []int,
+	run func([]float32, int, int, int, []int64) (*RecOut, error), vocab *Vocab) {
+	if len(sel) == 0 {
+		return
+	}
+	ws := make([]int, len(sel))
+	for k, j := range sel {
+		ws[k] = crops[j].w
+	}
+	for _, part := range WidthBatches(ws, 512) {
+		lines := make([][]float32, len(part))
+		hs := make([]int, len(part))
+		bw := make([]int, len(part))
+		for k, p := range part {
+			j := sel[p]
+			lines[k] = crops[j].ink
+			hs[k] = o.M.RecHeight
+			bw[k] = crops[j].w
+		}
+		batched, wOut, wm := PadBatch(lines, hs, bw)
+		ro, err := run(batched, len(part), o.M.RecHeight, wm, wOut)
 		if err != nil {
 			continue
 		}
 		stride := float64(wm) / math.Max(float64(ro.T), 1)
-		for k, j := range idx {
+		for k, p := range part {
+			j := sel[p]
 			ln := int(ro.Lens[k])
 			if ln > ro.T {
 				ln = ro.T
@@ -249,17 +286,42 @@ func (o *OCR) Recognize(g *Gray, boxes [][4]float32) []recLine {
 			}
 			conf := 0.0
 			if len(keptP) > 0 {
-				for _, p := range keptP {
-					conf += p
+				for _, pp := range keptP {
+					conf += pp
 				}
 				conf /= float64(len(keptP))
 			}
 			if conf >= MinConf {
-				out[j] = recLine{text: o.V.Decode(kept), conf: conf, toks: toks}
+				out[j] = recLine{text: vocab.Decode(kept), conf: conf, toks: toks}
 			} else {
 				out[j] = recLine{text: "", conf: conf}
 			}
 		}
+	}
+}
+
+// Recognize runs the recognizer over line boxes, routing lines the script
+// classifier (script.onnx) calls Chinese to rec_cjk.onnx (upstream recognize),
+// returns (text, conf, tokens).
+func (o *OCR) Recognize(g *Gray, boxes [][4]float32) []recLine {
+	n := len(boxes)
+	out := make([]recLine, n)
+	if n == 0 {
+		return out
+	}
+	crops := o.cropLines(g, boxes)
+	hanzi := o.hanziLines(crops)
+	var latin, cjk []int
+	for j, h := range hanzi {
+		if h {
+			cjk = append(cjk, j)
+		} else {
+			latin = append(latin, j)
+		}
+	}
+	o.recognizeSel(out, boxes, crops, latin, o.S.RunRec, o.V)
+	if len(cjk) > 0 {
+		o.recognizeSel(out, boxes, crops, cjk, o.S.RunRecCJK, o.M.VocabCJK)
 	}
 	return out
 }
