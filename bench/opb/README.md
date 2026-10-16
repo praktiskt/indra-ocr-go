@@ -29,7 +29,7 @@ or the three steps separately:
 ```sh
 uv run --with 'omni-parse-bench[benchmark]' --with pypdfium2 --with opencv-python-headless \
     bench/opb/prep.py --out /tmp/opb                 # render PNGs @ dpi 200 + manifest
-go run ./bench/opb -manifest /tmp/opb/manifest.json -out /tmp/opb/go.jsonl -workers 8
+go run ./bench/opb -manifest /tmp/opb/manifest.json -out /tmp/opb/go.jsonl -workers 8 -furniture
 uv run --with 'omni-parse-bench[benchmark]' --with opencv-python-headless \
     bench/opb/score.py --jsonl /tmp/opb/go.jsonl --imgs /tmp/opb/imgs --name go
 ```
@@ -59,14 +59,15 @@ not a like-for-like OCR comparison — it is a missing feature, not a regression
 
 | run | headline | text | tables | layout | median ms |
 |---|---|---|---|---|---|
-| **Go port (OCR only)** | **0.5687** | 0.311 | 0.526 | 0.870 | 234 |
+| **Go port (OCR, `-furniture`)** | **0.5731** | 0.324 | 0.526 | 0.870 | 209 |
+| Go port (OCR, furniture dropped) | 0.5687 | 0.311 | 0.526 | 0.870 | 234 |
 | upstream `--mode ocr` | 0.5714 | 0.326 | 0.512 | 0.876 | 591 |
 | upstream `auto` | 0.6155 | 0.405 | 0.563 | 0.879 | 504 |
 
-Go is at parity with upstream on OCR (-0.26pp headline) at ~2.5x lower latency,
-and ahead on tables (+1.0pp). The only material per-tag gap is `header_footer`
-(Go 0.146 vs 0.606, 226 tests): Go drops page furniture
-(`keepFurniture=false`) while upstream's `opb_indra` passes `furniture=True`.
+With `-furniture` the port **matches upstream on OCR** (+0.17pp headline) at
+~3x lower latency, and is ahead on tables (+1.4pp). The default drops page
+furniture, which is the whole gap: the `header_footer` tag scores 0.146 without
+it and 0.589 with it (upstream 0.606).
 
 Upstream's published numbers (x86, 4 vCPU, one page at a time) are `auto` 62.1
 and OCR-only 57.5 at 228/303 ms — the runs above reproduce them within ~0.5.
@@ -76,8 +77,9 @@ and OCR-only 57.5 at 228/303 ms — the runs above reproduce them within ~0.5.
 - **Text layer:** upstream `auto` uses digital PDFs' embedded text; the Go port
   has no text-layer path, so on digital-born pages upstream scores higher.
   Compare with `--mode ocr`.
-- **Furniture:** Go markdown drops headers/footers; the `header_footer` tag is
-  the only place this bites (and it is the whole Go-vs-upstream headline gap).
+- **Furniture:** Go markdown drops headers/footers by default; run with
+  `-furniture` (`PoolBuilder.Furniture(true)`) to keep them. That default is the
+  entire headline gap (the `header_footer` tag).
 - **Math:** Go has no LaTeX path; math-heavy suites (`olmo_arxiv_math`) score
   low for both engines.
 - **Render parity:** page PNGs must be dpi 200 to match indra's rasterisation.

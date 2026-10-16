@@ -196,19 +196,18 @@ Full-corpus result (dev box, all 2937 pages, 8 workers x 1 thread):
 
 | run | headline | text | tables | layout | median ms |
 |---|---|---|---|---|---|
-| Go port (OCR only) | **0.5687** | 0.311 | 0.526 | 0.870 | 234 |
+| **Go port (OCR, `-furniture`)** | **0.5731** | 0.324 | 0.526 | 0.870 | 209 |
+| Go port (OCR, furniture dropped) | 0.5687 | 0.311 | 0.526 | 0.870 | 234 |
 | upstream `--mode ocr` | 0.5714 | 0.326 | 0.512 | 0.876 | 591 |
 | upstream `auto` | 0.6155 | 0.405 | 0.563 | 0.879 | 504 |
 
 (Upstream's published numbers, x86 4 vCPU one-at-a-time: `auto` 62.1, OCR-only
 57.5, median 228/303 ms — my runs reproduce them within ~0.5.)
 
-Go is at **parity with upstream on OCR** (-0.26pp headline) at **~2.5x lower
-latency**, and *ahead* on tables (+1.0pp). The only material per-tag gap is
-`header_footer` (Go 0.146 vs upstream 0.606, 226 tests) — Go drops page
-furniture; every other tag is within ~0.03. The `auto` row is higher only
-because it reads PDF text layers (which Go lacks); it is not the like-for-like
-target.
+With `-furniture` the port **matches upstream on OCR** (+0.17pp headline) at ~3x
+lower latency and is ahead on tables; the default drops page furniture, which is
+the whole gap (`header_footer` 0.146 -> 0.589, upstream 0.606). The `auto` row is
+higher only because it reads PDF text layers; that is a capability, not OCR.
 
 Caveats:
 - Go markdown drops page furniture (`keepFurniture=false`) while upstream's

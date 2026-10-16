@@ -351,12 +351,13 @@ with `cv2.setNumThreads(1)`:
   math, tables, forms, multi-column, multilingual, handwriting, rotation/skew,
   old scans, tiny text...) — is the distribution the models were tuned for.
   Method + how to run: see the quality-eval skill.
-- **OCR-only parity:** full 2937 pages, Go headline **0.5687** vs upstream
-  `--mode ocr` **0.5714** (-0.26pp) at **~2.5x lower median latency** (234 vs
-  591 ms), and Go is *ahead* on tables (+1.0pp). The only material per-tag gap
-  is `header_footer` (Go 0.146 vs 0.606, 226 tests) because Go drops page
-  furniture; every other tag is within ~0.03. The port reproduces the reference
-  pipeline on this distribution, not just on FUNSD.
+- **OCR parity:** full 2937 pages, Go with `Furniture(true)` headline **0.5731**
+  vs upstream `--mode ocr` **0.5714** (+0.17pp) at **~3x lower median latency**
+  (209 vs 591 ms), and Go is *ahead* on tables (+1.4pp). The port reproduces the
+  reference pipeline on this distribution, not just on FUNSD.
+- The furniture option closed the only gap: without it, Go markdown drops page
+  headers/footers and the `header_footer` tag scores 0.146 vs 0.606 (headline
+  0.5687). `OCR.Furniture` / `PoolBuilder.Furniture(true)` restores it (0.589).
 - Upstream's published numbers reproduce locally: `auto` 61.6 (published 62.1),
   OCR-only 57.1 (57.5).
 - **Capability gap, not a regression:** upstream `mode=auto` reads embedded PDF
