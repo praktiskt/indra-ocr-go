@@ -68,7 +68,7 @@ func EstimateSkewPy(g *Gray) float64 {
 	}
 	sharpCoarse := func(a float64) float64 {
 		rad := a * math.Pi / 180
-		return sharpRowsStride(sm.Pix, sm.W, sm.H, math.Cos(rad), math.Sin(rad), cx, cy, 2)
+		return sharpRowsStride(sm.Pix, sm.W, sm.H, math.Cos(rad), math.Sin(rad), cx, cy, 4)
 	}
 	evalAngles := func(angles []float64, fn func(a float64) float64) []float64 {
 		vals := make([]float64, len(angles))

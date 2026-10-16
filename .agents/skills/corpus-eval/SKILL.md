@@ -212,6 +212,17 @@ Failure classes mapped (eyeballed dumps):
   13/13 identical to 1e-4deg; rec texts bit-identical on 4 testdata pages;
   corpus neutral (0.8616). skew -16%, rotate -21%, crops -10%. Safe pattern
   for future warp-math work (drift ~1e-11px, needs same A/B proof each time).
+- Skew coarse stride 4: accepted. The 800px estimator's cost is 96% the 32
+  sharpness passes (coarse x21 = 64%, fine x11 = 33%; the 800px resize only
+  ~3%). The coarse pass only locates the basin, so it runs at stride 4 (2x
+  cheaper than stride 2, which is itself argmax-identical to stride 1 on
+  199/199). Single-handle 10.4 -> 12.0 pages/s (1.14x; skew sits on the
+  single-handle critical path). Portable work: skew CPU -31%. Divergence:
+  1/199 pages shifts final skew by <=0.8deg (one deskew decision flip); corpus
+  recall 0.9136 -> 0.9137, gauntlet within 0.02pp. Scalar micro-opt of
+  sharpRowsStride (hoist + exact floor) is bit-identical but 0.995x - the loop
+  is memory/branch bound, not arithmetic. Pool throughput on the dev box is
+  unchanged (wall-bound); the win is single-handle + total work.
 - Throughput ceiling (2026-10, int8 rec): the pool is hard-capped at ~20 p/s
   OCR-only / ~19 p/s end-to-end (`Pool.CallFiles`) on the dev box
   (Ryzen 7 PRO 7840U, 8 physical / 16 logical, 28W). HONEST METHOD MATTERS:
