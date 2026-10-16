@@ -62,6 +62,9 @@ document corpus + the gauntlet.
 6. Report **time AND peak RSS**, measured at the **deployment thread count**
    (pool = 1 thread/worker). int8 and fp32 cross over with thread count; a
    speedup measured at 4+ threads can invert the decision.
+7. The official **Omni Parse Bench** ([`bench/opb/`](bench/opb/)) is the broad
+   periodic check. It is **heavy** (~30 min+ end to end), so run it sparingly —
+   at releases or after a model / pipeline change — not on every commit.
 
 ## Rules
 

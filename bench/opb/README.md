@@ -12,6 +12,11 @@ page types the FUNSD corpus and brutal-print gauntlet do not.
 Python runs through `uv` — nothing to install by hand. The dataset
 (`hf://datasets/datalab-to/omni_parse_bench`) downloads on first use.
 
+**Cost.** A full sweep is heavy — roughly ~10-20 min to render ~3k pages,
+~17 min for the Go runner (one page at a time), ~11 min upstream at `--procs 8`.
+Run it **sparingly** (releases, or after a model / pipeline change), not per
+commit; use `--limit`/`--suites` for a fast subset.
+
 ## Go port
 
 ```sh

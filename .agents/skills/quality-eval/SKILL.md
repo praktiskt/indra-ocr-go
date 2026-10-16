@@ -158,7 +158,11 @@ receipts... It scores each page's outputs (HTML rendered from the markdown +
 labeled blocks) against per-page tests; `headline` = the mean of the `text`,
 `tables` and `layout` families. This is the distribution the models were
 tuned for, so it catches page types neither our FUNSD corpus nor the gauntlet
-carry (math, tables, rotation). Use it as the broad, official check.
+carry (math, tables, rotation). Use it as the broad, official check — but it is
+**heavy**: run it sparsely (releases, or after a model / pipeline change), not
+on every commit. A full sweep is roughly ~10-20 min to render ~3k pages,
+~17 min for the Go runner (one page at a time) and ~11 min upstream at
+`--procs 8`; use `--limit`/`--suites` for a quick signal.
 
 Nothing to install by hand — the scripts run under `uv` (see `bench/opb/`):
 
