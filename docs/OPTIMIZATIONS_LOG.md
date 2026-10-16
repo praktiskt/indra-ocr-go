@@ -323,6 +323,28 @@ is hard-capped at ~20-25 p/s OCR-only / ~19 p/s end-to-end (`Pool.CallFiles`).
 
 ---
 
+## Go vs upstream: per-stage parity (threads=1)
+
+Same corpus, Go `NewOCR(1)` serial vs original `indra_ocr.OrtOCR(threads=1)`
+with `cv2.setNumThreads(1)`:
+
+| stage | Go | upstream |
+|---|---|---|
+| orientation | 10.2 ms | 11.3 ms |
+| skew | 28.4 ms | 24.1 ms |
+| det | 63.0 ms | 66.3 ms |
+| rec | 53.4 ms (int8) | 134.0 ms (fp32) |
+| **per-page core** | **149 ms** | **270 ms** |
+
+- No Go stage is meaningfully slower than upstream at the deployment thread
+  count; rec is 2.5x faster (shipped int8 vs upstream fp32). The end-to-end
+  1.26x (vs ~1.8x core-only) is upstream spending the difference on rendering,
+  the text layer and layout, not on OCR.
+- Compare at **threads=1**: at threads>=2 upstream's `cv2.warpAffine`
+  parallelizes the skew search while the Go estimator is single-threaded on
+  purpose (parallel angle eval was tried and rejected, -2.4%). Threads=2 makes
+  Go skew look ~2x slower; at deployment it is ~1.2x.
+
 ## Reference numbers (dev box)
 
 FUNSD 199-page guard (`TestCorpusRecall`, threads=2): shipped recall **0.9137**.
