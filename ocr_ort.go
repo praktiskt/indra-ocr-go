@@ -45,11 +45,23 @@ type Page struct {
 	Skew     float64
 }
 
+// Text is the reading-order line texts joined by newlines (upstream Page.text).
+func (p *Page) Text() string {
+	out := make([]string, len(p.Lines))
+	for i, l := range p.Lines {
+		out[i] = l.Text
+	}
+	return strings.Join(out, "\n")
+}
+
 // OCR binds sessions + meta + vocab.
 type OCR struct {
 	S *Sessions
 	M *Meta
 	V *Vocab
+	// Furniture keeps page headers and footers in Markdown (upstream
+	// load(furniture=True)). The default, false, drops them. Set before Call.
+	Furniture bool
 }
 
 // NewOCR opens sessions from embedded models.
@@ -307,6 +319,60 @@ func (o *OCR) Call(g *Gray) *Page {
 	return o.finish(g, k, skew, boxes, rec)
 }
 
+func f64boxes(bs [][4]float32) [][4]float64 {
+	out := make([][4]float64, len(bs))
+	for i, b := range bs {
+		out[i] = [4]float64{float64(b[0]), float64(b[1]), float64(b[2]), float64(b[3])}
+	}
+	return out
+}
+
+// CallText OCRs a page image but uses the caller's PDF text layer where it is
+// sound (upstream mode="auto"): trusted runs supply each detected line's text,
+// and lines the layer does not cover are OCR'd (hybrid). Falls back to plain
+// OCR when the layer is not trusted (scan, invisible layer, broken font map,
+// runs with no ink). Ordering uses the order model; upstream's pdf_order
+// (content order) is not ported. Source is "text" or "hybrid".
+func (o *OCR) CallText(g *Gray, tl *TextLayer) *Page {
+	if trusted, _ := o.readTextLayer(g, tl); !trusted {
+		return o.Call(g)
+	}
+	g2, k, skew := o.Upright(g)
+	boxes := o.Detect(g2)
+	txt, _ := assignRuns(tl.Runs, f64boxes(boxes))
+	rec := make([]recLine, len(boxes))
+	var empty [][4]float32
+	var emptyAt []int
+	for i := range boxes {
+		if strings.TrimSpace(txt[i]) != "" {
+			rec[i] = recLine{text: txt[i], conf: 1.0}
+		} else {
+			empty = append(empty, boxes[i])
+			emptyAt = append(emptyAt, i)
+		}
+	}
+	source := "text"
+	if len(empty) > 0 && o.readableText(tl.Runs) {
+		for j, r := range o.Recognize(g2, empty) {
+			if strings.TrimSpace(r.text) != "" {
+				rec[emptyAt[j]] = r
+				source = "hybrid"
+			}
+		}
+	}
+	var kb [][4]float32
+	var kr []recLine
+	for i := range boxes {
+		if rec[i].text != "" {
+			kb = append(kb, boxes[i])
+			kr = append(kr, rec[i])
+		}
+	}
+	p := o.finish(g2, k, skew, kb, kr)
+	p.Source = source
+	return p
+}
+
 // finish assembles results and undoes deskew on the output geometry.
 func (o *OCR) finish(g *Gray, k int, skew float64, boxes [][4]float32, rec []recLine) *Page {
 	wh := [2]float64{float64(g.W), float64(g.H)}
@@ -425,7 +491,7 @@ func (o *OCR) Assemble(wh [2]float64, boxes [][4]float32, rec []recLine) *Page {
 				}
 			}
 		}
-		p.Markdown = PageMarkdown(fb, texts, order, clsM, sameM, false, cells, cellBoxes)
+		p.Markdown = PageMarkdown(fb, texts, order, clsM, sameM, o.Furniture, cells, cellBoxes)
 	} else if len(fb) > 0 {
 		var ts []string
 		for _, i := range order {
