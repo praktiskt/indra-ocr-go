@@ -46,6 +46,23 @@ INDRA_CORPUS_DIR=/path/to/corpus go test -run TestCorpusRecall -count=1 -v
 Pass bar: word recall >= 0.80 (reference ~0.86 at v0.8.0, threads=2).
 Below bar = real regression, not refactor noise. ~16s runtime.
 
+## Reading order (the guard is blind to it)
+
+Word recall is bag-of-words: it cannot see line *sequence*. Any change to
+`order.onnx` (quantization, node pruning) needs a reading-order check too.
+Score the ordered predicted lines against FUNSD's ordered GT words with Kendall
+tau (matched tokens, in predicted order):
+
+1. Run OCR over a dir with `img/` + `gt.json` and dump per-page ordered line
+   texts to JSON (throwaway `_test.go`, never commit).
+2. For each page map predicted tokens to their GT word index and compute
+   Kendall tau of that sequence. Aggregate the mean over pages.
+
+The corpus is deterministic (raw-vs-raw divergence is 0), so this is a
+differential metric: compare candidate vs shipped. The shipped order.onnx
+(asserted in the log) has mean tau 0.5057 on FUNSD and 0.8889 cord / 0.3650
+xfund. Neutral = |delta| < ~0.01; quantify how many pages drop >2pp.
+
 ## A/B procedure for candidate changes
 
 1. Baseline: run guard, save recall.

@@ -1,7 +1,12 @@
 # tools
 
-Regeneration tooling for the shipped model. These are not built into the
+Regeneration tooling for the shipped models. These are not built into the
 library (`tools/` only holds `calib`, a small `main` package).
+
+- `models/rec.onnx` — recognizer, mixed-precision int8 (`quantize_rec.py`).
+- `models/order.onnx` — reading order, tab-head-stripped + dynamic int8
+  (`quantize_order.py`).
+- `models/det.onnx`, `models/orient.onnx` — shipped as upstream FP32.
 
 The recognizer in `models/rec.onnx` is a mixed-precision int8 build of the
 upstream FP32 `rec.onnx`. Everything here reproduces it.
@@ -56,3 +61,28 @@ INDRA_CORPUS_DIR=/path/to/corpus go test -run TestCorpusRecall -count=1 -v
 `tools/quantize_rec.py --help` documents the arguments. The int8 model keeps the
 FP32 model's input/output names (`x`, `widths` → `ids`, `conf`, `lengths`), so
 nothing in the Go code changes when the file is swapped.
+
+## Regenerate `models/order.onnx`
+
+Two steps, both in `tools/quantize_order.py`: remove the dead `tab` head (the
+port reads only `a`/`cls`/`same`), then dynamic-int8 the MatMul/Gemm weights.
+2.97 MB → 0.76 MB, recall and reading order unchanged (see
+`docs/OPTIMIZATIONS_LOG.md`).
+
+```sh
+# FP32 source: upstream huggingface.co/datalab-to/indra-ocr (order.onnx),
+# or the shipped pre-quantization file from git history.
+git show 293f1db:models/order.onnx > /tmp/order_fp32.onnx
+
+uv run --with onnx --with onnxruntime --with numpy \
+  tools/quantize_order.py --model /tmp/order_fp32.onnx --out models/order.onnx
+
+# --lossless strips the tab head but keeps FP32 (bit-identical outputs).
+
+# Validate (must print word_recall >= 0.913): the corpus guard is
+# bag-of-words, so also check reading order if you change the quantization.
+INDRA_CORPUS_DIR=/path/to/corpus go test -run TestCorpusRecall -count=1 -v
+```
+
+Outputs stay `a`/`cls`/`same` (the `tab` output is gone), so `session_ort.go`
+loads it unchanged.
