@@ -1,13 +1,14 @@
 ---
-name: corpus-eval
+name: quality-eval
 description: >
-  Broad quality evaluation for indra-ocr-go performance work. Scores word recall
-  over a 199-page FUNSD corpus instead of the 4 testdata pages, so perf changes
-  can't silently overfit a narrow sample. Use when touching detection sides,
-  adaptive passes, skew/orient preprocessing, batching, or concurrency/pipelining,
-  or asking "is this safe on broad data". Also covers the A/B procedure for numeric changes, the
-  settled-decisions log, and the 150-page brutal-print gauntlet (receipts,
-  multilingual forms, synthetic degrade/photo).
+  Quality evaluation for indra-ocr-go work. Scores word recall over a 199-page
+  FUNSD corpus instead of the 4 testdata pages, so changes can't silently
+  overfit a narrow sample. Use when touching detection sides, adaptive passes,
+  skew/orient preprocessing, batching, concurrency/pipelining, quantized models,
+  or asking "is this safe on broad data". Also covers the A/B procedure, the
+  reading-order metric, the settled-decisions log, the 150-page brutal-print
+  gauntlet (receipts, multilingual forms, synthetic degrade/photo), and the
+  official Omni Parse Bench (2937 pages, 22 suites).
 ---
 
 ## Corpus
@@ -148,6 +149,55 @@ Failure classes mapped (eyeballed dumps):
    No perspective path in pipeline.
 4. Blur/noise/downscale -> graceful rec degrade (0.46-0.63).
 5. `MinConf` wipeouts on faint print (e.g. 25/36 lines empty).
+
+## Omni Parse Bench (official, 2937 pages, 22 suites)
+
+The upstream `datalab-to/omni_parse_bench`: arxiv math, tables, forms,
+multi-column, multilingual, handwriting, rotation/skew, old scans, tiny text,
+receipts... It scores each page's outputs (HTML rendered from the markdown +
+labeled blocks) against per-page tests; `headline` = fraction passing, split
+into `text` and `layout` families. This is the distribution the models were
+tuned for, so it catches page types neither our FUNSD corpus nor the gauntlet
+carry (math, tables, rotation). Use it as the broad, official check.
+
+Install (needs HF access; the dataset loads on first use, ~3k files):
+
+```sh
+uv pip install --python <venv>/bin/python "omni-parse-bench[benchmark]"
+# dataset: hf://datasets/datalab-to/omni_parse_bench  (benchmark.DEFAULT_DATASET)
+```
+
+Two runners, one scorer:
+
+1. **Upstream baseline** — `bench/opb_indra.py` from `datalab-to/indra`:
+   ```sh
+   python bench/opb_indra.py --out runs/py --models <models> --mode ocr --procs 8
+   ```
+   **Use `--mode ocr`.** With `--mode auto` upstream reads the embedded PDF
+   text layer (`page.source` `text`/`hybrid`); the Go port is OCR-only (no
+   text-layer path), so `auto` is a capability gap, not a like-for-like OCR
+   comparison.
+2. **Go port** (throwaway harness, scripts in scratch not the repo):
+   - prep: render each page to PNG at **dpi 200** (matching indra) with
+     pypdfium2; `.png` docs pass through; write a `manifest.json`.
+   - OCR: a `tools/opb` main reads the manifest, runs the pool, and writes
+     `{page_id, markdown, blocks:[{label,bbox,text}]}` JSONL (bbox in page px).
+   - score: build `{"html": omni_parse_bench.markdown.to_html(markdown),
+     "blocks": [{"label": LABELS[label], "bbox": normalised 0-1, "text"}]}` and
+     call `omni_parse_bench.score(outputs, tests)` then
+     `summarize(verdicts, tests, pages)`. Go `BlockClasses` map 1:1 onto OPB
+     labels (`Table-Of-Contents` -> `text`).
+
+Full-corpus result (dev box, 8 workers x 1 thread): OCR-only **parity with
+upstream** — same headline to all digits (e.g. 0.4793233082706767 on the first
+30 pages), Go ~3x faster per page. Because upstream `auto` uses text layers, an
+`auto`-vs-Go comparison will *not* match; always compare `--mode ocr`.
+
+Caveats:
+- Go markdown drops page furniture (`keepFurniture=false`) while upstream's
+  `opb_indra` passes `furniture=True`; expect a small `page_furniture` delta.
+- Go has no math/LaTeX path; math-heavy suites (arxiv math) score low for both.
+- The PNG render must be dpi 200 to match indra's rasterisation.
 
 ## Settled decisions
 
