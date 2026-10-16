@@ -196,6 +196,24 @@ Failure classes mapped (eyeballed dumps):
   13/13 identical to 1e-4deg; rec texts bit-identical on 4 testdata pages;
   corpus neutral (0.8616). skew -16%, rotate -21%, crops -10%. Safe pattern
   for future warp-math work (drift ~1e-11px, needs same A/B proof each time).
+- Throughput ceiling (2026-10, int8 rec): the pool is hard-capped at ~20 p/s
+  OCR-only / ~19 p/s end-to-end (`Pool.CallFiles`) on the dev box
+  (Ryzen 7 PRO 7840U, 8 physical / 16 logical, 28W). HONEST METHOD MATTERS:
+  one model/config per process, warm up, best-of-N; compare end-to-end to
+  `pybench convert_many` at the same core count. Findings: (a) 8 independent
+  single-thread *processes* = the pool = 20.6 p/s, so the Go pool/goroutine
+  model is NOT the limit; (b) pure integer CPU scales 8x, but BOTH Go and
+  Python scale only ~3.2x from 1->8 cores - the OCR workload saturates a
+  shared resource (mem/power), so per-core work reduction does not raise pool
+  throughput; (c) 8 cores Go 18.9 vs Python 14.8 p/s = 1.26x end-to-end,
+  ~1.4x OCR-only. Rejected after honest re-test: det int8 (48.7 vs 35.5 ms/page
+  single-thread AND 16.8 vs 20.0 p/s in pool - DQ/Q around Resize/Concat
+  costs more than the conv win); skew half-size coarse (1.84x skew, but pool
+  unchanged 20.0 and FUNSD -0.10pp / photo -0.53pp); ORT
+  `allow_spinning=0` (nil); per-model threads det=2 (18.4 vs 20.0, worse);
+  pipeline vs serial pool (same 20 p/s, pipeline burns ~30% more CPU). Only
+  remaining speed lever: full-int8 rec (drop the FP32 stem/blocks0-1) = +4.5%
+  pool but -0.25pp FUNSD / -2pp degraded+photo - a quality trade, not free.
 - Order `tab` head pruned: allocated+computed, never read (tables
   render geometrically). a/cls/same bit-identical at N=43/138/400. No win at
   N=138, ~4% order-stage at N=400 + drops up to ~2MB dead alloc. Kept as hygiene.
