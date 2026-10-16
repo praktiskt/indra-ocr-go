@@ -75,7 +75,8 @@ document corpus + the gauntlet.
 - **Never commit throwaway harnesses.** A/B and divergence probes are
   `*_test.go` scratch files kept out of the tree (put scratch data in `/tmp`).
   `git diff` before committing must show only the intended change — no hidden
-  env kill-switches.
+  env kill-switches. The one committed harness is [`bench/opb/`](bench/opb/) (the
+  official Omni Parse Bench); everything ad hoc stays throwaway.
 - **Models are embedded** (`models/`). Regenerate them with `tools/`, never
   hand-edit. See [`tools/README.md`](tools/README.md).
 - **Don't cut quality mechanisms** (adaptive detection, det side, deskew) without
@@ -89,6 +90,7 @@ document corpus + the gauntlet.
 | `models/` | embedded ONNX models + `meta.json` (det long side, vocabs, rec height) |
 | `lib/` | embedded ONNX Runtime + C++ runtime (linux/amd64) |
 | `tools/` | model regeneration: `quantize_rec.py`, `quantize_order.py`, `calib/` (calibration crops) |
+| `bench/opb/` | committed Omni Parse Bench harness (Go runner + `uv`-run prep/score); see [`bench/opb/README.md`](bench/opb/README.md) |
 | `det.go` | detector decode (connected components) |
 | `ocr_ort.go` | pipeline: detect / recognize / upright / `Call` / `CallAll` / assemble |
 | `session_ort.go` | ORT sessions, embedded-lib loading, per-model threads |

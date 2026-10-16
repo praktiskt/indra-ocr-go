@@ -155,16 +155,17 @@ Failure classes mapped (eyeballed dumps):
 The upstream `datalab-to/omni_parse_bench`: arxiv math, tables, forms,
 multi-column, multilingual, handwriting, rotation/skew, old scans, tiny text,
 receipts... It scores each page's outputs (HTML rendered from the markdown +
-labeled blocks) against per-page tests; `headline` = fraction passing, split
-into `text` and `layout` families. This is the distribution the models were
+labeled blocks) against per-page tests; `headline` = the mean of the `text`,
+`tables` and `layout` families. This is the distribution the models were
 tuned for, so it catches page types neither our FUNSD corpus nor the gauntlet
 carry (math, tables, rotation). Use it as the broad, official check.
 
-Install (needs HF access; the dataset loads on first use, ~3k files):
+Nothing to install by hand — the scripts run under `uv` (see `bench/opb/`):
 
 ```sh
-uv pip install --python <venv>/bin/python "omni-parse-bench[benchmark]"
-# dataset: hf://datasets/datalab-to/omni_parse_bench  (benchmark.DEFAULT_DATASET)
+# the dataset (hf://datasets/datalab-to/omni_parse_bench) downloads on first use
+uv run --with 'omni-parse-bench[benchmark]' --with pypdfium2 --with opencv-python-headless \
+    bench/opb/prep.py --out /tmp/opb
 ```
 
 Two runners, one scorer:
@@ -177,16 +178,15 @@ Two runners, one scorer:
    text layer (`page.source` `text`/`hybrid`); the Go port is OCR-only (no
    text-layer path), so `auto` is a capability gap, not a like-for-like OCR
    comparison.
-2. **Go port** (throwaway harness, scripts in scratch not the repo):
+2. **Go port** — committed harness in [`bench/opb/`](../../../bench/opb/) (Go
+   runner + `uv`-run prep/score). `bench/opb/run.sh <outdir>` does all three:
    - prep: render each page to PNG at **dpi 200** (matching indra) with
      pypdfium2; `.png` docs pass through; write a `manifest.json`.
-   - OCR: a `tools/opb` main reads the manifest, runs the pool, and writes
-     `{page_id, markdown, blocks:[{label,bbox,text}]}` JSONL (bbox in page px).
-   - score: build `{"html": omni_parse_bench.markdown.to_html(markdown),
-     "blocks": [{"label": LABELS[label], "bbox": normalised 0-1, "text"}]}` and
-     call `omni_parse_bench.score(outputs, tests)` then
-     `summarize(verdicts, tests, pages)`. Go `BlockClasses` map 1:1 onto OPB
-     labels (`Table-Of-Contents` -> `text`).
+   - OCR: `bench/opb/main.go` reads the manifest, runs the pool **one page at a
+     time**, and writes `{page_id, markdown, blocks:[{label,bbox,text}]}` JSONL.
+   - score: `bench/opb/score.py` builds the `{html, blocks}` outputs (Go block
+     classes map 1:1 onto the benchmark's labels, `Table-Of-Contents` -> `text`)
+     and prints the summary; the full one lands in `<name>_summary.json`.
 
 Full-corpus result (dev box, all 2937 pages, 8 workers x 1 thread):
 
