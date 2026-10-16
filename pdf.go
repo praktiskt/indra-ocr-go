@@ -28,11 +28,11 @@ func (o *OCR) CallPDF(data []byte, opts *PDFOptions) ([]*Page, error) {
 	if err := loadPDFium(); err != nil {
 		return nil, err
 	}
-	doc, err := pdfOpen(data)
+	doc, buf, err := pdfOpen(data)
 	if err != nil {
 		return nil, err
 	}
-	defer pdfClose(doc)
+	defer pdfClose(doc, buf)
 	n := pdfPageCount(doc)
 	if maxPages > 0 && n > maxPages {
 		n = maxPages

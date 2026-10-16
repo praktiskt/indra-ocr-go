@@ -60,6 +60,16 @@ delta / baseline.
   ~5/88 pages run to run (layout-class changes on text/hybrid pages). The plain
   OCR path (PNG input) is deterministic (0/20 and the corpus dumps). Probably in
   the `CallText` text-layer assembly; needs a root cause.
+- **Fix (post-v0.24.0): PDFium buffer lifetime.** `pdfOpen` handed
+  `FPDF_LoadMemDocument64` a Go heap slice; pdfium does **not** copy it (the
+  caller must keep it valid for the document's lifetime), so the GC could free
+  it mid-render and `CallPDF` silently dropped/blanked pages (12-page PDF -> 3
+  pages, 2 blank under `GOGC=1`; intermittent otherwise). The bytes are now
+  copied into C memory (`C.CBytes`, `C.free`d by `pdfClose`), which also satisfies
+  the cgo pointer rules. `TestCallPDFPages` (`testdata/multipage12.pdf`, forced
+  GC) guards it. Audited the ORT paths: `CreateOrtTensorWithShape` and
+  `CreateSessionFromArray` copy, and `Tensor` keeps its slice — no other
+  retained-buffer sites.
 
 ### Math / LaTeX: embedded encoder-decoder — `v0.23.0`
 
