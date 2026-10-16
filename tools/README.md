@@ -9,10 +9,11 @@ library (`tools/` only holds `calib`, a small `main` package).
 - `models/order.onnx` — reading order, tab-head-stripped + dynamic int8
   (`quantize_order.py`).
 - `models/det.onnx`, `models/orient.onnx`, `models/script.onnx` and the math
-  classifier (`mathcls`) — shipped as upstream FP32. The math decoder step
-  (`math_dec_step`) is dynamic int8 (`quantize_math.py`, logits head excluded);
-  `math_enc`/`math_dec_init` are still FP32. `script` routes CJK lines to
-  `rec_cjk`; the math models are used with `OCR.Math`.
+  classifier (`mathcls`) — shipped as upstream FP32. The math encoder/decoder
+  (`math_enc` + `math_dec_step`) are dynamic int8 (`quantize_math.py`; the
+  decoder's logits head is excluded); `math_dec_init` stays FP32 (its MatMuls
+  are not direct-initializer weights, so dynamic quant is a no-op). `script`
+  routes CJK lines to `rec_cjk`; the math models are used with `OCR.Math`.
 - `compose_table.go` (repo root) — the spacing-diacritic composition table used
   by `foldSpacingAccents` in `pdfium.go` (`gen_compose.py`).
 
@@ -137,6 +138,8 @@ default).
 uv run --with onnx --with onnxruntime --with numpy \
   tools/quantize_math.py --model /tmp/math_dec_step_fp32.onnx \
   --out models/math_dec_step.onnx --exclude /out/MatMul
+uv run --with onnx --with onnxruntime --with numpy \
+  tools/quantize_math.py --model /tmp/math_enc_fp32.onnx --out models/math_enc.onnx
 ```
 
 `--exclude /out/MatMul` keeps the decoder's final vocab projection FP32: it feeds

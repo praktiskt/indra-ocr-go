@@ -18,6 +18,26 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### Math encoder (`math_enc`): dynamic int8 — *unreleased (batch)*
+
+- Same recipe as `math_dec_step` (`tools/quantize_math.py`, dynamic per-channel
+  `QUInt8` MatMul/Gemm, no calibration): the 12 attention/FFN `MatMul` weights
+  quantize; the 34 `Conv` stay FP32 (that is most of the file). 9.89 -> 7.29 MB
+  (-26%).
+- Measured **stacked on the shipped `math_dec_step` int8** (both int8):
+  OPB `olmo_arxiv_math` (514 pages) text 0.61484 -> 0.61413 (-0.07pp), headline
+  0.78932 -> 0.78784 (-0.15pp; `math_dec_step` alone is -0.02pp, so `math_enc`'s
+  marginal is ~-0.13pp). 260/514 pages differ; 36 pages > 5% char change
+  (worst 0.25) — 8-bit on the encoder's attention perturbs some math spans that
+  the decoder cross-attends to. All deltas are inside the project's accept bar
+  (< 1pp), but this is the least lossless math model; a calibrated static-int8
+  build (which could protect the attention `out_proj`) is the untried lever.
+- **`math_dec_init` stays FP32:** its 6 `MatMul` read
+  `memory x transpose(sliced in_proj_weight)` — the weight is not a direct
+  initializer, so ORT's dynamic quantizer skips them (1.36 -> 1.37 MB, no-op).
+  Quantizing it would need constant-folding the weight transposes first; it runs
+  once per batch, so the payoff is ~1 MB — deferred.
+
 ### Math decoder step (`math_dec_step`): dynamic int8, logits head protected — *unreleased (batch)*
 
 - `math_dec_step.onnx` is the hot math model: it is run **once per decoded
