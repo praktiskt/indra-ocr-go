@@ -188,10 +188,23 @@ Two runners, one scorer:
      `summarize(verdicts, tests, pages)`. Go `BlockClasses` map 1:1 onto OPB
      labels (`Table-Of-Contents` -> `text`).
 
-Full-corpus result (dev box, 8 workers x 1 thread): OCR-only **parity with
-upstream** — same headline to all digits (e.g. 0.4793233082706767 on the first
-30 pages), Go ~3x faster per page. Because upstream `auto` uses text layers, an
-`auto`-vs-Go comparison will *not* match; always compare `--mode ocr`.
+Full-corpus result (dev box, all 2937 pages, 8 workers x 1 thread):
+
+| run | headline | text | tables | layout | median ms |
+|---|---|---|---|---|---|
+| Go port (OCR only) | **0.5687** | 0.311 | 0.526 | 0.870 | 234 |
+| upstream `--mode ocr` | 0.5714 | 0.326 | 0.512 | 0.876 | 591 |
+| upstream `auto` | 0.6155 | 0.405 | 0.563 | 0.879 | 504 |
+
+(Upstream's published numbers, x86 4 vCPU one-at-a-time: `auto` 62.1, OCR-only
+57.5, median 228/303 ms — my runs reproduce them within ~0.5.)
+
+Go is at **parity with upstream on OCR** (-0.26pp headline) at **~2.5x lower
+latency**, and *ahead* on tables (+1.0pp). The only material per-tag gap is
+`header_footer` (Go 0.146 vs upstream 0.606, 226 tests) — Go drops page
+furniture; every other tag is within ~0.03. The `auto` row is higher only
+because it reads PDF text layers (which Go lacks); it is not the like-for-like
+target.
 
 Caveats:
 - Go markdown drops page furniture (`keepFurniture=false`) while upstream's

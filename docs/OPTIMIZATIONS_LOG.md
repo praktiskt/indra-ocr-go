@@ -351,10 +351,14 @@ with `cv2.setNumThreads(1)`:
   math, tables, forms, multi-column, multilingual, handwriting, rotation/skew,
   old scans, tiny text...) — is the distribution the models were tuned for.
   Method + how to run: see the quality-eval skill.
-- **OCR-only parity:** with upstream forced to OCR (`--mode ocr`), the Go port
-  and upstream score the same headline to all digits (0.4793233082706767 on the
-  first 30 pages) at ~3x lower per-page latency. The port reproduces the
-  reference pipeline on this distribution, not just on FUNSD.
+- **OCR-only parity:** full 2937 pages, Go headline **0.5687** vs upstream
+  `--mode ocr` **0.5714** (-0.26pp) at **~2.5x lower median latency** (234 vs
+  591 ms), and Go is *ahead* on tables (+1.0pp). The only material per-tag gap
+  is `header_footer` (Go 0.146 vs 0.606, 226 tests) because Go drops page
+  furniture; every other tag is within ~0.03. The port reproduces the reference
+  pipeline on this distribution, not just on FUNSD.
+- Upstream's published numbers reproduce locally: `auto` 61.6 (published 62.1),
+  OCR-only 57.1 (57.5).
 - **Capability gap, not a regression:** upstream `mode=auto` reads embedded PDF
   text layers (`source` = text/hybrid); the Go port is OCR-only, so on
   digital-born PDFs upstream scores higher. Compare with `--mode ocr`; the
