@@ -2,7 +2,7 @@
 
 Native Go port of the [Indra OCR pipeline](https://github.com/datalab-to/indra) (Apache-2.0).
 
-~1M-parameter recognizer plus detector / ordering / orientation models on ONNX Runtime, CPU only.
+~1M-parameter recognizer (Latin/multi + CJK) plus detector, ordering, orientation and script-classifier models on ONNX Runtime, CPU only.
 
 The recognizer ships as a mixed-precision int8 build (stem + first two blocks kept FP32, and Convs promoted Conv1d→Conv2d so ONNX Runtime applies its NCHWc layout): ~2.4x faster than the FP32 model at the pool's one-thread-per-worker setting for ~0.15pp less word recall. See [`tools/`](tools/README.md) for the recipe.
 

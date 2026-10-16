@@ -6,7 +6,8 @@ library (`tools/` only holds `calib`, a small `main` package).
 - `models/rec.onnx` — recognizer, mixed-precision int8 (`quantize_rec.py`).
 - `models/order.onnx` — reading order, tab-head-stripped + dynamic int8
   (`quantize_order.py`).
-- `models/det.onnx`, `models/orient.onnx` — shipped as upstream FP32.
+- `models/det.onnx`, `models/orient.onnx`, `models/script.onnx`, `models/rec_cjk.onnx`
+  — shipped as upstream FP32 (`script` routes CJK lines to `rec_cjk`).
 
 The recognizer in `models/rec.onnx` is a mixed-precision int8 build of the
 upstream FP32 `rec.onnx`. Everything here reproduces it.

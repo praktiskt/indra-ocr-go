@@ -37,6 +37,21 @@ delta / baseline.
   monotonically (stem+blocks0-3: 21.4 p/s, -0.05pp; stem only: 23.2 p/s, -0.41pp
   but -2/-2.5pp on degraded/photo).
 
+### CJK routing: script.onnx -> rec_cjk.onnx — `v0.21.0`
+
+- The port ran only the Latin/multi recognizer; CJK lines were confabulated
+  (gauntlet failure class 1: zh/ja ~0.4-0.6). It now matches upstream
+  `recognize`: `script.onnx` classifies each line's script (p > 0.5 -> Chinese)
+  and those lines go to `rec_cjk.onnx`, decoded with the already-embedded
+  `vocab_cjk`.
+- `script.onnx` (0.19 MB) + `rec_cjk.onnx` (9.3 MB, fp32) are now embedded;
+  upstream ships them but the port had omitted them.
+- **Quality:** brutal-print gauntlet xfund 0.9516 -> **0.9601** (+0.85pp); FUNSD
+  guard 0.9136 -> 0.9135 (noise) and every other subset unchanged (Latin, Greek,
+  Cyrillic, Devanagari lines still route to rec).
+- Not quantized yet (`rec_cjk` stays fp32); `rec_cjk` int8 needs its own CJK
+  calibration.
+
 ### Recognizer: fused softmax-max confidence head — `v0.19.0`
 
 - `conf` (probability of the argmax class) was `ReduceMax + Sub + Exp + ReduceSum
@@ -381,4 +396,4 @@ Brutal-print gauntlet (threads=2), current:
 | funsd-degraded | 0.8501 |
 | funsd-photo | 0.8117 |
 | sroie | 0.8456 |
-| xfund | 0.9518 |
+| xfund | 0.9601 |

@@ -120,7 +120,7 @@ Reference scores (threads=2):
 
 | subset | recall | avg ms |
 |---|---|---|
-| xfund | 0.9411 | 833 |
+| xfund | 0.9601 | 833 |
 | sroie | 0.8309 | 707 |
 | funsd-degraded | 0.7848 | 671 |
 | funsd-photo | 0.7579 | 655 |
@@ -139,8 +139,9 @@ Known caveats (don't "fix" these as pipeline bugs without checking):
   Replaced with funsd-photo. Don't re-add without a transcription source.
 
 Failure classes mapped (eyeballed dumps):
-1. CJK void + Latin hallucination (zh/ja ~0.4-0.6, digits carry them).
-   Detection + digits right, glyphs confabulated. No CJK routing exists.
+1. CJK void + Latin hallucination used to be (zh/ja ~0.4-0.6, digits carry
+   them). **Status: handled** — `script.onnx` routes CJK lines to
+   `rec_cjk.onnx` (+`vocab_cjk`); xfund 0.9516 -> 0.9601, FUNSD/Latin unchanged.
 2. Orient false positive on photo receipts: upright photo + `rot=180`
    (>0.95 conf) = whole page garbage. Dark top background suspected bias.
    Status: handled — true rotations score >=0.998 vs FP 0.954, so

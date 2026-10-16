@@ -12,7 +12,7 @@ type Meta struct {
 	DetLongSide int
 	RecHeight   int
 	Vocab       *Vocab
-	VocabCJK    *Vocab // parsed for completeness; CJK routing not implemented
+	VocabCJK    *Vocab // rec_cjk recognizer vocab (CJK lines routed by script.onnx)
 }
 
 // ParseMeta parses meta.json content.

@@ -108,6 +108,8 @@ func writeAll(fd int, data []byte) error {
 type Sessions struct {
 	Det    *ort.DynamicAdvancedSession
 	Rec    *ort.DynamicAdvancedSession
+	RecCJK *ort.DynamicAdvancedSession // CJK recognizer (routed by Script)
+	Script *ort.DynamicAdvancedSession // per-line script classifier
 	Order  *ort.DynamicAdvancedSession
 	Orient *ort.DynamicAdvancedSession
 }
@@ -195,6 +197,14 @@ func NewSessionsWithThreads(tc Threads) (*Sessions, error) {
 		s.Close()
 		return nil, fmt.Errorf("indra: rec: %w", err)
 	}
+	if s.RecCJK, err = mkWith("rec_cjk.onnx", []string{"x", "widths"}, []string{"ids", "conf", "lengths"}, tc.Rec); err != nil {
+		s.Close()
+		return nil, fmt.Errorf("indra: rec_cjk: %w", err)
+	}
+	if s.Script, err = mkWith("script.onnx", []string{"x", "widths"}, []string{"p"}, tc.Order); err != nil {
+		s.Close()
+		return nil, fmt.Errorf("indra: script: %w", err)
+	}
 	if s.Order, err = mkWith("order.onnx", []string{"feats", "mask"}, []string{"a", "cls", "same"}, tc.Order); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("indra: order: %w", err)
@@ -211,7 +221,7 @@ func (s *Sessions) Close() {
 	if s == nil {
 		return
 	}
-	for _, d := range []*ort.DynamicAdvancedSession{s.Det, s.Rec, s.Order, s.Orient} {
+	for _, d := range []*ort.DynamicAdvancedSession{s.Det, s.Rec, s.RecCJK, s.Script, s.Order, s.Orient} {
 		if d != nil {
 			d.Destroy()
 		}
@@ -247,6 +257,15 @@ type RecOut struct {
 
 // RunRec runs rec.onnx on a padded batch [B,1,H,Wm].
 func (s *Sessions) RunRec(batch []float32, b, h, wm int, widths []int64) (*RecOut, error) {
+	return runRec(s.Rec, batch, b, h, wm, widths)
+}
+
+// RunRecCJK runs rec_cjk.onnx on a padded batch [B,1,H,Wm].
+func (s *Sessions) RunRecCJK(batch []float32, b, h, wm int, widths []int64) (*RecOut, error) {
+	return runRec(s.RecCJK, batch, b, h, wm, widths)
+}
+
+func runRec(sess *ort.DynamicAdvancedSession, batch []float32, b, h, wm int, widths []int64) (*RecOut, error) {
 	x, err := ort.NewTensor(ort.Shape{int64(b), 1, int64(h), int64(wm)}, batch)
 	if err != nil {
 		return nil, err
@@ -276,7 +295,7 @@ func (s *Sessions) RunRec(batch []float32, b, h, wm int, widths []int64) (*RecOu
 		return nil, err
 	}
 	defer lens.Destroy()
-	if err := s.Rec.Run([]ort.Value{x, w}, []ort.Value{ids, conf, lens}); err != nil {
+	if err := sess.Run([]ort.Value{x, w}, []ort.Value{ids, conf, lens}); err != nil {
 		return nil, err
 	}
 	tt := int(ids.GetShape()[1])
@@ -286,6 +305,30 @@ func (s *Sessions) RunRec(batch []float32, b, h, wm int, widths []int64) (*RecOu
 		Lens: lens.GetData(),
 		B:    b, T: tt,
 	}, nil
+}
+
+// RunScript runs script.onnx on a padded batch [B,1,H,Wm], returning per-line
+// P(the line holds Chinese characters).
+func (s *Sessions) RunScript(batch []float32, b, h, wm int, widths []int64) ([]float32, error) {
+	x, err := ort.NewTensor(ort.Shape{int64(b), 1, int64(h), int64(wm)}, batch)
+	if err != nil {
+		return nil, err
+	}
+	defer x.Destroy()
+	w, err := ort.NewTensor(ort.Shape{int64(b)}, widths)
+	if err != nil {
+		return nil, err
+	}
+	defer w.Destroy()
+	p, err := ort.NewEmptyTensor[float32](ort.Shape{int64(b)})
+	if err != nil {
+		return nil, err
+	}
+	defer p.Destroy()
+	if err := s.Script.Run([]ort.Value{x, w}, []ort.Value{p}); err != nil {
+		return nil, err
+	}
+	return p.GetData(), nil
 }
 
 // OrderOut holds order.onnx outputs for N lines.
