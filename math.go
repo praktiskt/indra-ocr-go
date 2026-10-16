@@ -264,43 +264,49 @@ func (m *MathReader) decodeBatch(out []mathLine, crops []lineCrop, part []int) {
 	seqs := make([][]int, b)
 	probs := make([][]float64, b)
 	done := make([]bool, b)
+
+	// Tensors whose shape is constant across decode steps are allocated once and
+	// reused: onnxruntime_go's tensor wraps the Go slice (no copy), so writing
+	// the slice updates the tensor. Only the KV tensors grow per step. This is
+	// bit-identical to per-step allocation, just less churn in a loop that runs
+	// up to max_tokens-1 times per line batch.
+	tokT, err := ort.NewTensor(ort.Shape{int64(b)}, tok)
+	if err != nil {
+		sk.Destroy()
+		sv.Destroy()
+		return
+	}
+	defer tokT.Destroy()
+	logits, err := ort.NewEmptyTensor[float32](ort.Shape{int64(b), int64(m.nTokens)})
+	if err != nil {
+		sk.Destroy()
+		sv.Destroy()
+		return
+	}
+	defer logits.Destroy()
+
 	for step := 0; step < m.maxTokens-1; step++ {
-		tokT, err := ort.NewTensor(ort.Shape{int64(b)}, tok)
-		if err != nil {
-			break
-		}
+		// pos is a true 0-dim scalar input; ort.NewScalar is the only ctor that
+		// makes one (a rank-1 [1] tensor mis-shapes the decoder).
 		posT, err := ort.NewScalar[int64](int64(step))
 		if err != nil {
-			tokT.Destroy()
 			break
 		}
 		nk, err := ort.NewEmptyTensor[float32](kvShape(int64(step + 1)))
 		if err != nil {
-			tokT.Destroy()
 			posT.Destroy()
 			break
 		}
 		nv, err := ort.NewEmptyTensor[float32](kvShape(int64(step + 1)))
 		if err != nil {
-			tokT.Destroy()
 			posT.Destroy()
 			nk.Destroy()
-			break
-		}
-		logits, err := ort.NewEmptyTensor[float32](ort.Shape{int64(b), int64(m.nTokens)})
-		if err != nil {
-			tokT.Destroy()
-			posT.Destroy()
-			nk.Destroy()
-			nv.Destroy()
 			break
 		}
 		err = m.step.Run([]ort.Value{tokT, posT, sk, sv, ck, cv, mask},
 			[]ort.Value{logits, nk, nv})
-		tokT.Destroy()
 		posT.Destroy()
 		if err != nil {
-			logits.Destroy()
 			nk.Destroy()
 			nv.Destroy()
 			break
@@ -335,7 +341,6 @@ func (m *MathReader) decodeBatch(out []mathLine, crops []lineCrop, part []int) {
 				allDone = false
 			}
 		}
-		logits.Destroy()
 		sk.Destroy()
 		sv.Destroy()
 		sk, sv = nk, nv

@@ -18,6 +18,27 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### Math decode loop: reuse constant-shape tensors — *unreleased (batch)*
+
+- `math.go` `decodeBatch` allocated and destroyed the `token`/`pos`/`logits`
+  tensors **every decode step** (up to `max_tokens-1` = 319 steps per line
+  batch). `token` and `logits` have constant shape across steps, so they are now
+  allocated once and reused (onnxruntime_go tensors wrap the Go slice, so writing
+  the slice updates the tensor). `pos` stays per-step: it is a true **0-dim
+  scalar** input, and only `ort.NewScalar` builds one (a rank-1 `[1]` tensor
+  mis-shapes the decoder and `Run` errors, silently dropping all math — caught by
+  the math suite, since the pipeline then falls back to plain rec text).
+- **Bit-identical:** OPB `olmo_arxiv_math` (514 pages) markdown+blocks **0/514
+  differ** pre/post. (The math path is run-to-run deterministic; the only
+  unstable field in the JSONL is the reported per-page `ms`, so compare
+  markdown+blocks, not bytes.) Math is opt-in, so the default path is untouched.
+- Not separately timed (opt-in path; this is a quality-first batch), but it is a
+  pure allocation-churn reduction in the decoder's inner loop.
+- Considered and left alone: `newMathReader`'s hardcoded `newOptions(2)` for all
+  four math models ignores the pool's `Threads` (oversubscribes at `Threads(1)`),
+  but changing intra-op thread counts can perturb ORT accumulation order and thus
+  the autoregressive argmax, so it is not quality-neutral and needs its own A/B.
+
 ### Math encoder (`math_enc`): dynamic int8 — *unreleased (batch)*
 
 - Same recipe as `math_dec_step` (`tools/quantize_math.py`, dynamic per-channel
