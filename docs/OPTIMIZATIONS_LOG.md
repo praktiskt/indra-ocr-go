@@ -1,0 +1,230 @@
+# Optimizations log
+
+Every performance change attempted on this port, with the evidence that
+accepted or rejected it. The point is to avoid re-litigating settled questions
+and to keep the *method* honest.
+
+- **Method, guard, gauntlet, A/B procedure:** see
+  [`.agents/skills/corpus-eval/SKILL.md`](../.agents/skills/corpus-eval/SKILL.md).
+- **Reproduce the shipped models:** see [`tools/README.md`](../tools/README.md).
+- **Honest benchmarking:** one model/config per process, warm up, best-of-N;
+  report **time and peak RSS**, measured at the **deployment** thread count
+  (pool = 1 thread/worker). Never trust a speedup measured at one thread count.
+
+"pp" = percentage points (absolute recall fraction delta x 100). "relative" =
+delta / baseline.
+
+---
+
+## Accepted (shipped)
+
+### Recognizer: mixed-precision int8 — `v0.14.0`
+
+- **Config** (`tools/quantize_rec.py`, byte-reproducible): QDQ, per-channel
+  weights, `QUInt8` activations, `QInt8` weights, MinMax, **asymmetric**
+  activations, quantize the **raw** graph (no `quant_pre_process`), keep the
+  **stem + first two blocks FP32**.
+- **Speed:** rec ~2.4x at 1 thread (t2 1.8x, t4 1.3x). Pool 17.8 -> 22.3 pages/s
+  (+25%), peak RSS -13%.
+- **Quality:** FUNSD 0.9134 vs 0.9150 (-0.16pp); 2/199 pages >5pp worse, 0 >10pp;
+  gauntlet within 0.5pp.
+- **Why it worked when the first attempt didn't:** the original rejection was
+  measured at 4+ intra-op threads, where int8 has no edge (fp32 scales with
+  threads, VNNI saturates at one). Three choices recovered accuracy: raw graph
+  (`quant_pre_process` decomposes HardSwish and quantizes more tensors, worse on
+  both axes), asymmetric activations (~+0.6pp vs symmetric), and FP32
+  stem/blocks 0-1. Keeping more leading blocks FP32 trades speed for accuracy
+  monotonically (stem+blocks0-3: 21.4 p/s, -0.05pp; stem only: 23.2 p/s, -0.41pp
+  but -2/-2.5pp on degraded/photo).
+
+### Recognizer: Conv1d -> Conv2d promotion (NCHWc) — `v0.16.0`, LOSSLESS
+
+- ORT's layout optimizer only lowers **2-D** Convs to the fast **NCHWc** layout;
+  **1-D** Convs are left on the slow generic path
+  (microsoft/onnxruntime#16047, maintainer: *"just promote it to Conv2d"*). The
+  whole rec backbone is `Conv1d`.
+- `tools/quantize_rec.py` (`promote_conv2d`, on by default; `--no-promote` to
+  skip) adds a unit spatial axis and keeps the graph 4-D (SE reduce axes ->
+  (2,3), widths mask -> `[B,1,1,W]`, final Squeeze for CTC).
+- Optimized graph: **~2 -> ~117 NCHWc ops**. Numerically identical: 0 CTC lines
+  differ, corpus 0.9134 -> 0.9136, gauntlet within +/-0.02pp.
+- Rec-only: fp32 1.22x, int8 1.08x. End-to-end pool 8x1t +~2.5%.
+- Bonus: NCHWc makes fp32 convs **scale with threads** (fp32 rec t1 18548ms ->
+  t4 8362ms), so at 4-8 threads fp32+NCHWc ~= int8 Conv1d.
+
+### Skew: coarse pass at stride 4 — `v0.17.0`
+
+- The 800px estimator is ~96% sharpness passes (coarse x21 = 64%, fine x11 =
+  33%; the resize is ~3%). The coarse pass only locates the basin, so it runs at
+  **stride 4** (2x cheaper than stride 2, which is argmax-identical to stride 1
+  on 199/199 pages).
+- Single-handle 10.4 -> 12.0 pages/s (1.14x; skew is on the single-handle
+  critical path). Skew CPU work -31% (portable).
+- Divergence: 1/199 pages shifts final skew <=0.8deg (one deskew decision flip);
+  corpus 0.9136 -> 0.9137, gauntlet within 0.02pp. Pool on the dev box unchanged
+  (wall-bound).
+
+### Pipeline overlap (stage pipelining) — accepted
+
+- `OCR.CallAll` / `Pool.CallAll` run per-page stages (orient+det / rec / assemble)
+  as a 3-stage goroutine pipeline, one page per stage, sessions partitioned by
+  stage. Output bit-identical to per-page `Call` (DeepEqual, threads=1; `-race`
+  clean).
+- Single handle +1.36-1.43x pages/s. This is **stage** overlap, NOT parallel rec
+  sessions (only one page is in rec at a time).
+
+### Pool sizing defaults
+
+- Default `NumCPU/2` workers x 1 thread (`AutoWorkers`, `NewPoolAuto`,
+  `NewPoolBuilder`). Worker count dominates intra-op threads (threads=2 loses).
+  Throughput plateaus from ~6-16 workers; half the cores is the knee with
+  headroom for the pipeline's small stages. RAM scales ~linearly with workers
+  (~120-260MB/handle + ~380MB floor) -> `MemBudget` / `PerHandleBytes`.
+
+### Warp-math incremental walks
+
+- `sharpRows` / `rotateRows` / `resizeLinearRows` advance coords by addition
+  instead of recomputing per pixel. Tilt sweep 13/13 identical to 1e-4deg; rec
+  texts bit-identical on testdata; corpus neutral. skew -16%, rotate -21%,
+  crops -10%. Safe pattern for future warp-math work (needs the same A/B proof).
+
+### Order `tab` head pruned (hygiene)
+
+- Allocated+computed, never read (tables render geometrically). a/cls/same
+  bit-identical. No win at N=138, ~4% order-stage at N=400 + drops ~2MB dead
+  alloc. Kept as hygiene.
+
+---
+
+## Rejected (do not re-run without new data)
+
+### Detector resolution below 1024
+
+- 768: shifts output on 178/199 pages, degrades 10 pages 5-15pp (Latin forms gain
+  avg +1.7pp, CJK/small-print loses).
+- 896: FUNSD neutral (0.9137), det 1.32x, **but** gauntlet cord (receipts)
+  **-3.7pp / -5.1% relative** (xfund -0.45pp; sroie +4.0 / alpha-hi +4.6). A
+  real regression on small print. Raising `adaptiveMinH` did not rescue cord.
+  Net: +4.5% end-to-end for a receipts regression — not worth it.
+- Det is already 2-D and NCHWc'd; keep 1024.
+
+### Detector int8
+
+- **Every** int8 form (QDQ and QOperator, per-channel and per-tensor, U8U8,
+  S8S8) yields **0 NCHWc ops** for det -> 46 ms/page vs 35 ms fp32. The NCHWc
+  transformer does not lower quantized convs, and the int8 path without NCHWc is
+  slower. Dead.
+
+### Alternate CPU execution providers (all three fail)
+
+- **DNNL EP**: slower than MLAS. Allocates 16 OpenMP threads regardless of ORT's
+  thread setting; even constrained, 87-132 ms vs 53 ms on det. Known poor ORT
+  integration (microsoft/onnxruntime#5615).
+- **OpenVINO EP**: huge *single-session* speedups (det 9.2 ms vs 32 at 1 thread)
+  are a **thread artifact** — OpenVINO ignores `intra_op` and used 16 threads.
+  At 1 thread it equals MLAS (32.2 vs 31.7), and it **collapses in the pool**
+  (~4 p/s vs 25) in every worker x `num_of_threads` config. It parallelizes one
+  inference internally; our throughput is many concurrent single-thread workers.
+  (It is numerically lossless: corpus 0.9150.)
+- **XNNPACK EP**: wash (det 1.05x, rec 1.0x). Unsupported ops (SE/CTC/Resize)
+  fall back to CPU and the layout churn cancels the conv win.
+
+### FP8 / FP16 / BF16 on CPU
+
+- ORT CPU has no fp8 kernels and no fp16 ops; BF16 Conv is unsupported, and
+  Quark BF16 is GPU/NPU-only. Zen4 has no fp8 hardware (avx512_vnni only). Dead.
+
+### Rec: AdaRound / activation MSE-clip
+
+- Layer-wise AdaRound (ONNX + numpy, output-Gram quadratic, sequential binary
+  coordinate descent from round-to-nearest) cut per-layer output MSE 63% (14% of
+  weights re-rounded) but moved FUNSD recall only +0.04pp (b1) / +0.09pp (full
+  int8); line-exact/char-edit flat. MSE-optimal activation ranges beat ORT MinMax
+  on **0/127** tensors (ranges already tight). The residual int8 loss is
+  intrinsic to 8-bit **activation** quant, not weight rounding. Untried lever if
+  ever needed: quantized-input reconstruction (`||conv(W_hat,Xq)-conv(W,X)||^2`).
+
+### Rec: full int8 (drop the FP32 stem/blocks 0-1)
+
+- +4.5% pool but -0.25pp FUNSD, -2pp on degraded/photo. A quality trade, not
+  free. Not taken.
+
+### Rec: remove the SE (squeeze-excite) blocks
+
+- SE is ~16% of rec, but bypassing the SE scale **destroys** the model: corpus
+  recall 0.9137 -> **0.0187**. SE is load-bearing. Dead.
+
+### Rec: batching retune
+
+- Bigger batches (fewer ORT runs) are **slower** — rec is pixel-compute-bound,
+  not launch-bound; padding dominates. The current `WidthBatches` (ratio 1.3,
+  area 40960) is near-optimal; tighter buckets (r1.15) only ~5% rec better.
+  Leave it.
+
+### Rec: shape-static model / parallel rec sessions / int8-only-Conv
+
+- Shape-static (baked fixed shapes / free-dim overrides): 0.96-1.02x on real
+  shapes. Parallel rec sessions: rec saturates cores at 8 threads; 16-thread
+  single-session collapses 248 -> 681 ms. Conv-only int8 (leave elementwise
+  fp32): slower (10.3 vs 9.7 s).
+
+### Skew / misc micro-optimizations
+
+- Skew half-size coarse: 1.84x skew but FUNSD -0.10pp / photo -0.53pp, and no
+  pool gain. Superseded by the accepted stride-4 coarse (which is near-lossless).
+- Bit-identical scalar rewrite of `sharpRowsStride` (hoist `cos*stride`, replace
+  `math.Floor` with exact truncate+correct): verified identical by fuzz, but
+  **0.995x** — the loop is memory/branch-bound, not arithmetic.
+- ORT `allow_spinning=0`: nil. Per-model threads `det=2`: worse (18.4 vs 20.0).
+- Serial pool vs pipelined pool: same throughput (~20 p/s); the pipeline burns
+  ~30% more CPU (matters only where CPU is the binding constraint).
+- 1x1 Conv as MatMul: 1x1 Conv is **faster** (0.87 vs 0.93 ms / 15 layers).
+  Don't rewrite pointwise convs as MatMul.
+
+---
+
+## Corrections / stale notes
+
+- **Skew estimator**: an older note said "600px + 3-level search". The shipped
+  estimator is `EstimateSkewPy` (800px thumbnail, 0.5deg coarse then 0.1deg fine,
+  black border). The 600px `EstimateSkew` exists but is unused.
+- **`quant_pre_process`**: do NOT run it before quantizing rec — it decomposes
+  HardSwish and quantizes more tensors, hurting both accuracy and speed.
+
+---
+
+## Throughput ceiling & measurement (dev box)
+
+Dev box: Ryzen 7 PRO 7840U (8 physical / 16 logical, 28W laptop part). The pool
+is hard-capped at ~20-25 p/s OCR-only / ~19 p/s end-to-end (`Pool.CallFiles`).
+
+- **8 independent single-thread *processes* = the pool** (~20.6 p/s) -> the Go
+  pool/goroutine model is NOT the limit.
+- Pure integer CPU scales 8x, but **both Go and Python scale only ~3.2x** from
+  1->8 cores: the workload saturates a shared resource (memory/power). Per-core
+  work reduction does **not** raise pool throughput here.
+- End-to-end at 8 cores: Go ~18.9 vs Python `convert_many` ~14.8 p/s = **1.26x**
+  (~1.4x OCR-only). Single-handle wins (skew, pipeline) show here even when the
+  pool does not.
+- Consequence: prefer changes that reduce total work (they help unconstrained
+  many-core hardware) and validate scaling on the target hardware, not this box.
+
+---
+
+## Reference numbers (dev box)
+
+FUNSD 199-page guard (`TestCorpusRecall`, threads=2): shipped recall **0.9137**.
+
+Brutal-print gauntlet (threads=2), current:
+
+| subset | recall |
+|---|---|
+| alpha-bn | 1.0000 |
+| alpha-el | 0.9286 |
+| alpha-hi | 0.9302 |
+| alpha-ru | 0.9400 |
+| cord | 0.7178 |
+| funsd-degraded | 0.8501 |
+| funsd-photo | 0.8117 |
+| sroie | 0.8456 |
+| xfund | 0.9518 |
