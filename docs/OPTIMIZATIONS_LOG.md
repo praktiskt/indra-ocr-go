@@ -252,6 +252,20 @@ Done while hunting for further surgery (do not redo):
 - **SE `Div` is not foldable:** its divisor is the *runtime* valid-element count
   (`blocks.0/se/Clip(ReduceSum(mask))`), shared by every block, not a constant.
 
+### Re-audit: rec `--fp32-blocks` did NOT move post-NCHWc
+
+- Re-swept after the Conv1d->Conv2d promotion on the theory that cheaper fp32
+  convs would shift the accuracy/speed knee. They did not.
+- rec latency (2063 lines, 1 thread): blk0 1548, blk1 1562, **blk2 1641**,
+  blk3 1725, blk4 1805 ms.
+- FUNSD: blk0 0.9110, blk1 0.9119, **blk2 0.9137**, blk3 0.9136, blk4 0.9142.
+- Gauntlet: blk3/blk4 are dominated -- slower and no consistent gain (blk4 is
+  *worse*: cord -1.8pp, sroie -0.4pp). blk1 is 4.8% faster rec but -0.18pp FUNSD
+  and mixed on the gauntlet (-0.4pp degraded/photo, +0.6pp cord).
+- Verdict: keep `--fp32-blocks 2`. Reproduced the shipped rec exactly from the
+  `cal` calibration dir (ids+conf bit-identical), so the comparison base is the
+  shipped model.
+
 ---
 
 ## Corrections / stale notes
