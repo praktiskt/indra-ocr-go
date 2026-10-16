@@ -49,6 +49,8 @@ method in [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-
   `Kansaneläkelaitos`) are fixed.
 - **Validation:** `TestFoldSpacingAccents` (prefix, marks/bases, primes, ASCII)
   and `TestFoldSpacingAccentsOrder` (prefix vs postfix from boxes, stacking).
+- **Version:** the composition landed in `v0.25.0` (acute / diaeresis / double
+  acute / cedilla); extended to every mark and both glyph orders in `v0.25.1`.
 
 ## `pdf_order` (PDF content order) not ported
 
