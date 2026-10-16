@@ -11,8 +11,9 @@ ONNX Runtime libraries are embedded; nothing is downloaded at runtime.
 
 ## Keep these documents current
 
-`AGENTS.md` (this file), [`docs/OPTIMIZATIONS_LOG.md`](docs/OPTIMIZATIONS_LOG.md)
-and [`.agents/skills/quality-eval/SKILL.md`](.agents/skills/quality-eval/SKILL.md)
+`AGENTS.md` (this file), [`docs/OPTIMIZATIONS_LOG.md`](docs/OPTIMIZATIONS_LOG.md),
+[`docs/DEVIATIONS.md`](docs/DEVIATIONS.md) and
+[`.agents/skills/quality-eval/SKILL.md`](.agents/skills/quality-eval/SKILL.md)
 are living documents. **Update them in the same commit as the change, never
 "later":**
 
@@ -101,12 +102,13 @@ document corpus + the gauntlet.
 | `image.go` | grayscale, resize, rotate, skew, crop; `WidthBatches`/`PadBatch` |
 | `skew_py.go` | python-exact skew estimator |
 | `order.go`, `layout.go` | reading order, layout blocks, markdown |
-| `docs/` | `OPTIMIZATIONS_LOG.md` (perf history) |
+| `docs/` | `OPTIMIZATIONS_LOG.md` (perf history), `DEVIATIONS.md` (differences from upstream indra) |
 | `.agents/skills/` | `quality-eval` skill (guard, gauntlet, reading-order, Omni Parse Bench, A/B method) |
 
 ## More
 
 - [`README.md`](README.md) — usage/API.
 - [`docs/OPTIMIZATIONS_LOG.md`](docs/OPTIMIZATIONS_LOG.md) — perf history.
+- [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md) — intentional output differences from upstream indra.
 - [`tools/README.md`](tools/README.md) — regenerating the shipped models.
 - [`.agents/skills/quality-eval/SKILL.md`](.agents/skills/quality-eval/SKILL.md) — evaluation method.

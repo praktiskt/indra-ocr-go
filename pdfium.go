@@ -347,11 +347,7 @@ func pdfProcess(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun,
 	}
 	defer C.pdfium_text_close(tp)
 	nc := int(C.pdfium_text_count(tp))
-	type ch struct {
-		c   rune
-		box [4]float64 // rendered px
-	}
-	var cs []ch
+	var cs []TextChar
 	var breaks []int
 	nChars, nRot, nBad := 0, 0, 0
 	for i := 0; i < nc; i++ {
@@ -394,7 +390,7 @@ func pdfProcess(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun,
 		if cx < 0 || cx > pw || cy < 0 || cy > ph {
 			continue
 		}
-		cs = append(cs, ch{c, box})
+		cs = append(cs, TextChar{Ch: c, Box: box})
 	}
 	// cut into runs at the breaks
 	cuts := append(append([]int(nil), breaks...), len(cs))
@@ -410,9 +406,10 @@ func pdfProcess(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun,
 		}
 		seg := cs[start:end]
 		start = end
-		var ink []ch
+		seg = foldSpacingAcute(seg)
+		var ink []TextChar
 		for _, c := range seg {
-			if !unicode.IsSpace(c.c) {
+			if !unicode.IsSpace(c.Ch) {
 				ink = append(ink, c)
 			}
 		}
@@ -423,16 +420,53 @@ func pdfProcess(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun,
 		var sb strings.Builder
 		var chars []TextChar
 		for _, c := range seg {
-			sb.WriteRune(c.c)
-			chars = append(chars, TextChar{Ch: c.c, Box: c.box})
+			sb.WriteRune(c.Ch)
+			chars = append(chars, c)
 		}
 		for _, c := range ink {
-			box[0] = math.Min(box[0], c.box[0])
-			box[1] = math.Min(box[1], c.box[1])
-			box[2] = math.Max(box[2], c.box[2])
-			box[3] = math.Max(box[3], c.box[3])
+			box[0] = math.Min(box[0], c.Box[0])
+			box[1] = math.Min(box[1], c.Box[1])
+			box[2] = math.Max(box[2], c.Box[2])
+			box[3] = math.Max(box[3], c.Box[3])
 		}
 		runs = append(runs, TextRun{Text: strings.Join(strings.Fields(sb.String()), " "), Box: box, Chars: chars})
 	}
 	return g, runs, nChars, nRot, invisible, true
+}
+
+// acuteCompose maps a base letter to its precomposed acute form.
+var acuteCompose = map[rune]rune{
+	'a': 'á', 'A': 'Á', 'c': 'ć', 'C': 'Ć', 'e': 'é', 'E': 'É', 'i': 'í', 'I': 'Í',
+	'l': 'ĺ', 'L': 'Ĺ', 'n': 'ń', 'N': 'Ń', 'o': 'ó', 'O': 'Ó', 'r': 'ŕ', 'R': 'Ŕ',
+	's': 'ś', 'S': 'Ś', 'u': 'ú', 'U': 'Ú', 'y': 'ý', 'Y': 'Ý', 'z': 'ź', 'Z': 'Ź',
+	'g': 'ǵ', 'G': 'Ǵ', 'w': 'ẃ', 'W': 'Ẃ', 'æ': 'ǽ', 'Æ': 'Ǽ',
+	'ı': 'í', // dotless i (Turkish/legacy) before an acute
+}
+
+// foldSpacingAcute composes a spacing acute (U+00B4) that PDFs place just before
+// its base letter: pdfium emits the accent glyph in content order, so "Cicho´n"
+// comes out where the recognizer (whose vocab is NFC) gives "Cichoń". This
+// deviates from upstream indra, which does not normalize the text layer — see
+// docs/DEVIATIONS.md.
+//
+// The acute is composed only when it sits between two letters (prev letter,
+// next composable letter), which is every real accent case here; a U+00B4 after
+// a non-letter (or before punctuation) is a prime/symbol and is left as-is, e.g.
+// "SplExtp´," or "r´, ´s".
+func foldSpacingAcute(seg []TextChar) []TextChar {
+	out := make([]TextChar, 0, len(seg))
+	for i := 0; i < len(seg); i++ {
+		if seg[i].Ch == '\u00b4' && i > 0 && i+1 < len(seg) &&
+			unicode.IsLetter(seg[i-1].Ch) {
+			if p, ok := acuteCompose[seg[i+1].Ch]; ok {
+				nx := seg[i+1]
+				nx.Ch = p
+				out = append(out, nx)
+				i++
+				continue
+			}
+		}
+		out = append(out, seg[i])
+	}
+	return out
 }
