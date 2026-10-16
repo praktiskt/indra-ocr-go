@@ -18,7 +18,7 @@ delta / baseline.
 
 ## Accepted (shipped)
 
-### Math decode loop: reuse constant-shape tensors — *unreleased (batch)*
+### Math decode loop: reuse constant-shape tensors — `v0.26.0`
 
 - `math.go` `decodeBatch` allocated and destroyed the `token`/`pos`/`logits`
   tensors **every decode step** (up to `max_tokens-1` = 319 steps per line
@@ -39,7 +39,7 @@ delta / baseline.
   but changing intra-op thread counts can perturb ORT accumulation order and thus
   the autoregressive argmax, so it is not quality-neutral and needs its own A/B.
 
-### Math encoder (`math_enc`): dynamic int8 — *unreleased (batch)*
+### Math encoder (`math_enc`): dynamic int8 — `v0.26.0`
 
 - Same recipe as `math_dec_step` (`tools/quantize_math.py`, dynamic per-channel
   `QUInt8` MatMul/Gemm, no calibration): the 12 attention/FFN `MatMul` weights
@@ -59,7 +59,7 @@ delta / baseline.
   Quantizing it would need constant-folding the weight transposes first; it runs
   once per batch, so the payoff is ~1 MB — deferred.
 
-### Math decoder step (`math_dec_step`): dynamic int8, logits head protected — *unreleased (batch)*
+### Math decoder step (`math_dec_step`): dynamic int8, logits head protected — `v0.26.0`
 
 - `math_dec_step.onnx` is the hot math model: it is run **once per decoded
   token** (up to `max_tokens-1` = 319 serial ORT runs per line batch), 31
@@ -77,7 +77,7 @@ delta / baseline.
   --exclude /out/MatMul` (byte-reproducible).
 - FUNSD/xfund not run here: the math models are off the default path (`OCR.Math`).
 
-### CJK recognizer (`rec_cjk`): mixed-precision int8 — *unreleased (batch)*
+### CJK recognizer (`rec_cjk`): mixed-precision int8 — `v0.26.0`
 
 - **The rec recipe applies verbatim.** `rec_cjk.onnx` is exported from the same
   graph as `rec.onnx`: identical node/tensor names (`/rec/stem`, `/rec/blocks.N`,
