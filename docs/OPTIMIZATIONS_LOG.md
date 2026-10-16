@@ -37,6 +37,22 @@ delta / baseline.
   monotonically (stem+blocks0-3: 21.4 p/s, -0.05pp; stem only: 23.2 p/s, -0.41pp
   but -2/-2.5pp on degraded/photo).
 
+### Recognizer: fused softmax-max confidence head — `v0.19.0`
+
+- `conf` (probability of the argmax class) was `ReduceMax + Sub + Exp + ReduceSum
+  + Reciprocal + Mul` = 16 nodes incl. their Q/DQ wrappers, i.e. several
+  elementwise passes over the `[B,T,V]` logits. ORT's `Softmax` kernel does the
+  same math in one fused pass and `ReduceMax` picks the max probability.
+  `tools/quantize_rec.py` (`fuse_conf_head`, on by default; `--no-fuse-head` to
+  skip) rewrites the branch to `Softmax -> ReduceMax`.
+- **Numerically:** `ids` and `lengths` are on a different branch and stay
+  bit-identical (0 differing CTC lines on 60 real crops); `conf` differs only by
+  accumulation order (~2e-3).
+- **Speed:** rec ~7% (60 real crops, 1 thread); end-to-end guard `avg_ms`
+  411 -> 395 (-4%), reproducible across runs.
+- **Quality:** FUNSD 0.9137 -> 0.9136 (-0.01pp, one word via a MinConf flip);
+  brutal-print gauntlet identical on all 9 subsets.
+
 ### Recognizer: Conv1d -> Conv2d promotion (NCHWc) — `v0.16.0`, LOSSLESS
 
 - ORT's layout optimizer only lowers **2-D** Convs to the fast **NCHWc** layout;
@@ -88,11 +104,32 @@ delta / baseline.
   texts bit-identical on testdata; corpus neutral. skew -16%, rotate -21%,
   crops -10%. Safe pattern for future warp-math work (needs the same A/B proof).
 
-### Order `tab` head pruned (hygiene)
+### Order: `tab` head stripped + dynamic int8 — `v0.18.0`
 
-- Allocated+computed, never read (tables render geometrically). a/cls/same
-  bit-identical. No win at N=138, ~4% order-stage at N=400 + drops ~2MB dead
-  alloc. Kept as hygiene.
+- **What:** `tools/quantize_order.py` (a) physically removes the dead `tab`
+  head (38 tab-only nodes + 4 initializers; the port only reads a/cls/same,
+  tables render geometrically), then (b) dynamic-quantizes the MatMul/Gemm
+  weights to per-channel QUInt8.
+- **Size:** `models/order.onnx` 2.97 MB -> 0.76 MB (-74%), ~-2.2 MB of embedded
+  model bytes. This is the largest model but runs once per page, so it is a
+  size/startup win, not a throughput one.
+- **Speed:** order stage 2.16 -> 1.92 ms (N=140 lines, 1 thread). Session
+  create for the 4-model set drops ~10 ms from the smaller node count.
+- **Quality:** FUNSD guard 0.9137 -> 0.9137 (identical); brutal-print gauntlet
+  identical on all 9 subsets (cord 0.7178, sroie 0.8456, xfund 0.9516, ...).
+- **Reading order:** the guard is bag-of-words and blind to sequence, so a
+  Kendall-tau metric against FUNSD's ordered GT words was added (see the
+  corpus-eval skill). Quantization perturbs adjacency near threshold: 51/199
+  FUNSD pages re-sequence (median 5 lines, pure permutation). The metric shows
+  it is quality-neutral: mean tau +0.0007 on FUNSD, 0 pages worse >2pp;
+  cord/xfund/alpha identical; sroie -0.0057 mean, 2/29 pages >2pp.
+- `--lossless` strips `tab` only (bit-identical outputs) if the quantization is
+  ever unwanted.
+
+### Order `tab` head pruned at fetch (superseded)
+
+- The earlier hygiene change only skipped fetching `tab`; the nodes still lived
+  in the file and ORT still built them. Superseded by the physical strip above.
 
 ---
 
@@ -180,6 +217,40 @@ delta / baseline.
   ~30% more CPU (matters only where CPU is the binding constraint).
 - 1x1 Conv as MatMul: 1x1 Conv is **faster** (0.87 vs 0.93 ms / 15 layers).
   Don't rewrite pointwise convs as MatMul.
+
+---
+
+### Pre-baked (ORT-optimized) graphs / `.ort` format
+
+- Pre-baking ORT's in-memory optimized graph into the embedded files (constant
+  folding + NCHWc layout + QDQ->QLinear + GELU/LayerNorm fusions) cuts session
+  create for the 4-model set 70.8 -> 44.7 ms (keeping level=ALL) or 37 ms
+  (disable), with identical corpus recall. **Not shipped:** the files are
+  slightly *larger* (det 390 -> 402 KB), keep-ALL re-derives everything at load
+  anyway, and a baked graph version-locks the NCHWc layout to the bundled ORT.
+  The order size win above already captures the useful part.
+- `.ort` flatbuffer/`.optimized.onnx`: larger than ONNX here (det 390 -> 459 KB).
+  No size win; not shipped.
+
+### Re-audit: the shipped models are already maximally fused at load
+
+Done while hunting for further surgery (do not redo):
+
+- **det / orient:** ORT's NCHWc transformer absorbs `Conv+HardSwish` into the
+  conv activation (31 / 21 HardSwish -> 0), plus conv+BN / conv+Add folding.
+  Node counts 164 -> 96 and 55 -> 30.
+- **rec int8:** QDQ -> `QLinearConv`/`QLinearMul`/`QLinearAdd`/`QLinearSigmoid`;
+  BN folded; `se/fc1` Relu fused into its conv. The only unfused activation is
+  HardSwish in the int8 region (no `QLinearHardSwish` exists) -> a
+  dequant+HardSigmoid+Mul+quant island, ~1% of rec.
+- **order:** Erf-GELU -> `BiasGelu`, `LayerNorm` kept, `FusedMatMul`. The port
+  never reads `tab`.
+- **rec profile** (40 real crops, 1 thread): `QLinearConv` 8.6%, fp32 `Conv`
+  5.1%, `DequantizeLinear` 2.9%, `QLinearMul` 2.8%. The CTC confidence head
+  (ReduceMax/Sub/Exp/ReduceSum/Reciprocal/Mul, ~14% of rec) is already the
+  minimal softmax decomposition -- `Softmax`+`ReduceMax` would do the same work.
+- **SE `Div` is not foldable:** its divisor is the *runtime* valid-element count
+  (`blocks.0/se/Clip(ReduceSum(mask))`), shared by every block, not a constant.
 
 ---
 

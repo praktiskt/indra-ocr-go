@@ -83,7 +83,7 @@ document corpus + the gauntlet.
 |---|---|
 | `models/` | embedded ONNX models + `meta.json` (det long side, vocabs, rec height) |
 | `lib/` | embedded ONNX Runtime + C++ runtime (linux/amd64) |
-| `tools/` | model regeneration: `quantize_rec.py`, `calib/` (calibration crops) |
+| `tools/` | model regeneration: `quantize_rec.py`, `quantize_order.py`, `calib/` (calibration crops) |
 | `det.go` | detector decode (connected components) |
 | `ocr_ort.go` | pipeline: detect / recognize / upright / `Call` / `CallAll` / assemble |
 | `session_ort.go` | ORT sessions, embedded-lib loading, per-model threads |
