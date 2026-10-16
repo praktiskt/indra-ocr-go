@@ -37,6 +37,23 @@ delta / baseline.
   monotonically (stem+blocks0-3: 21.4 p/s, -0.05pp; stem only: 23.2 p/s, -0.41pp
   but -2/-2.5pp on degraded/photo).
 
+### PDF input: embedded PDFium + auto text layer — `v0.23.0`
+
+- `OCR.CallPDF` / `Pool.CallPDF` render PDF bytes and, in `mode="auto"`, use
+  each page's text layer where sound (the `CallText` hybrid path) — upstream
+  `document.py`. Ports `textlayer.py` extraction: per-char boxes mapped through
+  the page-to-device affine, char angles (upright check), the invisible-text
+  fraction (render mode 3), the broken-font / no-ink trust checks and
+  `assign_runs`.
+- The renderer **PDFium** (BSD-3-Clause, 7.8 MB) is embedded and loaded from
+  memfd like ONNX Runtime; every entry point is resolved with `dlsym`, so the Go
+  module gains no PDF dependency. `loadPDFium` is lazy.
+- **Quality:** OPB `realdoc_pdfs` (88 pages, `auto`) headline **0.6942** vs
+  upstream **0.7121** (-1.8pp; text -3.6pp, layout equal). The residual is the
+  unported `pdf_order` (content order — Go orders with the order model) plus
+  minor line-count differences (~5%). The default OCR path is unaffected.
+- `mode="ocr"` ignores the text layer; `PDFOptions.DPI` defaults to 200.
+
 ### Math / LaTeX: embedded encoder-decoder — `v0.22.0`
 
 - Ports upstream `math.py`: `mathcls.onnx` flags lines that hold math and a

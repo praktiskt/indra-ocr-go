@@ -91,7 +91,7 @@ document corpus + the gauntlet.
 | path | contents |
 |---|---|
 | `models/` | embedded ONNX models + `meta.json` (det long side, vocabs, rec height) |
-| `lib/` | embedded ONNX Runtime + C++ runtime (linux/amd64) |
+| `lib/` | embedded native libs (linux/amd64): ONNX Runtime, PDFium (PDF render + text layer) + C++ runtime |
 | `tools/` | model regeneration: `quantize_rec.py`, `quantize_order.py`, `calib/` (calibration crops) |
 | `bench/opb/` | committed Omni Parse Bench harness (Go runner + `uv`-run prep/score); see [`bench/opb/README.md`](bench/opb/README.md) |
 | `det.go` | detector decode (connected components) |

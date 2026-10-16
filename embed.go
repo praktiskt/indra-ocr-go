@@ -11,7 +11,8 @@ import "embed"
 var modelFS embed.FS
 
 // libFS holds the embedded native libraries (linux/amd64):
-// ONNX Runtime 1.31.0 plus its C++ runtime dependencies.
+// ONNX Runtime 1.31.0 + its C++ runtime dependencies, and PDFium (the PDF
+// renderer + text-layer extractor used by CallPDF).
 //
-//go:embed lib/libonnxruntime.so lib/libstdc++.so.6 lib/libgcc_s.so.1
+//go:embed lib/libonnxruntime.so lib/libstdc++.so.6 lib/libgcc_s.so.1 lib/libpdfium.so
 var libFS embed.FS

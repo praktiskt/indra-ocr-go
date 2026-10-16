@@ -120,6 +120,21 @@ model; upstream `pdf_order` is not yet ported.
 footers in the markdown, as upstream `load(furniture=True)`; the default drops
 them.
 
+## PDF input
+
+`CallPDF` renders PDF bytes with the embedded PDFium engine and, in `"auto"`
+mode, reads each page's text layer where it is sound (the `CallText` path above)
+— upstream `mode="auto"`. The engine is embedded, nothing is installed.
+
+```go
+pages, err := ocr.CallPDF(pdfBytes, nil)                       // auto
+pages, err = ocr.CallPDF(pdfBytes, &indra.PDFOptions{Mode: "ocr"})
+```
+
+`PDFOptions`: `DPI` (default 200), `Mode` (`"auto"` / `"ocr"`), `MaxPages`.
+Upstream's `pdf_order` (keep the PDF content order) is not ported — Go orders
+with the order model; on OPB `realdoc_pdfs` that costs ~1.8pp headline.
+
 ## API
 
 | Function | Description |
@@ -131,6 +146,8 @@ them.
 | `(*OCR).Furniture` | Keep page headers/footers in the markdown |
 | `(*OCR).Math` | Read math lines as LaTeX (upstream `math=True`; embeds ~20 MB) |
 | `(*Page).Text()` | Reading-order line texts joined by newlines |
+| `(*OCR).CallPDF(data, opts)` | Convert PDF bytes: render + text layer (`mode="auto"`) |
+| `PDFOptions` | PDF render: `DPI` / `Mode` ("auto"/"ocr") / `MaxPages` |
 | `NewPool(workers, threads)` | Create concurrent pool (explicit sizing) |
 | `NewPoolAuto()` | Pool sized for the host (AutoWorkers, 1 thread each) |
 | `NewPoolBuilder()` | Chainable builder: Workers/Threads/ThreadsPerModel/MemBudget/Furniture/Math |
@@ -138,6 +155,7 @@ them.
 | `PerHandleBytes` | Estimated resident memory per worker (budget unit) |
 | `(*Pool).CallAll(pages)` | Batch OCR across pool workers, pipelined within each |
 | `(*Pool).CallText(page, layer)` | OCR with a caller-supplied text layer, over the pool |
+| `(*Pool).CallPDF(data, opts)` | Convert PDF bytes over the pool |
 | `(*Pool).CallFiles(paths)` | Read+decode files in parallel, OCR over the pool (paths -> pages) |
 | `VocabFromJSON(s)` | Parse vocabulary JSON |
 | `NewVocab(chars)` | Create vocabulary |
