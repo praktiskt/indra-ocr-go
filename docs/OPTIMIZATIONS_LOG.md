@@ -430,12 +430,17 @@ with `cv2.setNumThreads(1)`:
   math, tables, forms, multi-column, multilingual, handwriting, rotation/skew,
   old scans, tiny text...) — is the distribution the models were tuned for.
   Method + how to run: see the quality-eval skill.
-- **OCR parity:** full 2937 pages, Go default (OCR, after CJK routing) headline
-  **0.5739** vs upstream `--mode ocr` **0.5714** at **~3x lower latency**, ahead
-  on tables. CJK routing added **+0.52pp** (0.5687 before it); furniture adds
-  ~+0.4pp (`header_footer` 0.146 -> 0.589 vs 0.606; `OCR.Furniture` /
-  `PoolBuilder.Furniture(true)`). The port reproduces the reference pipeline on
-  this distribution, not just on FUNSD.
+- **Full 2937-page OPB, current build (`-furniture`, default pool):**
+  - **Go OCR (image input): headline 0.5784** (text 0.332, tables 0.523, layout
+    0.880) vs upstream `--mode ocr` **0.5714** — **+0.7pp, the port beats the
+    reference on OCR.**
+  - **Go `auto` (PDF text layer via `CallPDF`): headline 0.6048** (text 0.401)
+    vs upstream `auto` **0.6155** — within 1.1pp; the residual is the unported
+    `pdf_order`.
+  - The original Go default was **0.5687**; since then CJK routing (+0.52pp),
+    furniture (~+0.4pp) and the PDF text layer (~+2.6pp) took it to 0.6048.
+- `header_footer` opened the last OCR gap (0.146 -> 0.589 vs upstream 0.606);
+  `OCR.Furniture` / `PoolBuilder.Furniture(true)` is the switch.
 - Upstream's published numbers reproduce locally: `auto` 61.6 (published 62.1),
   OCR-only 57.1 (57.5).
 - **Capability gap, not a regression:** upstream `mode=auto` reads embedded PDF

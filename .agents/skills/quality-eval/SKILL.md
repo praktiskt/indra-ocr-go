@@ -198,19 +198,19 @@ Full-corpus result (dev box, all 2937 pages, 8 workers x 1 thread):
 
 | run | headline | text | tables | layout |
 |---|---|---|---|---|
-| **Go port (OCR, default)** | **0.5739** | 0.319 | 0.523 | 0.880 |
-| Go port (OCR, `+furniture`, pre-CJK) | 0.5731 | 0.324 | 0.526 | 0.870 |
-| upstream `--mode ocr` | 0.5714 | 0.326 | 0.512 | 0.876 |
+| **Go `auto` (PDF text layer, `-furniture`)** | **0.6048** | 0.401 | 0.536 | 0.877 |
+| Go OCR (`-furniture`) | 0.5784 | 0.332 | 0.523 | 0.880 |
+| Go OCR (default) | 0.5739 | 0.319 | 0.523 | 0.880 |
 | upstream `auto` | 0.6155 | 0.405 | 0.563 | 0.879 |
+| upstream `--mode ocr` | 0.5714 | 0.326 | 0.512 | 0.876 |
 
 (Upstream's published numbers, x86 4 vCPU one-at-a-time: `auto` 62.1, OCR-only
 57.5, median 228/303 ms — my runs reproduce them within ~0.5.)
 
-The port **matches upstream on OCR** at ~3x lower latency and is ahead on
-tables. CJK routing added **+0.52pp** (0.5687 before it); `-furniture` adds
-~+0.4pp (`header_footer` 0.146 -> 0.589 vs 0.606). `auto` is higher only because
-it reads PDF text layers — a capability the port now provides (`CallPDF` /
-PDFium), so it is not the like-for-like OCR target.
+The port **beats upstream on OCR** (0.5784 vs 0.5714, `-furniture`) and reaches
+**within 1.1pp of upstream `auto`** with the PDF text layer (`-pdf`; residual is
+the unported `pdf_order`). CJK routing +0.52pp, furniture ~+0.4pp, the text layer
+~+2.6pp over the original 0.5687.
 
 Caveats:
 - Go markdown drops page furniture by default (`-furniture` /
