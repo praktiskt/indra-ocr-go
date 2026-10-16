@@ -62,7 +62,7 @@ delta / baseline.
   `realdoc_pdfs` used to flip ~5/88 pages run to run; that was the GC freeing the
   PDF buffer mid-render, not the `CallText` assembly. Now 0/88 differ and the
   headline is stable.
-- **Fix (post-v0.24.0): PDFium buffer lifetime.** `pdfOpen` handed
+- **Fix — `v0.24.1`: PDFium buffer lifetime.** `pdfOpen` handed
   `FPDF_LoadMemDocument64` a Go heap slice; pdfium does **not** copy it (the
   caller must keep it valid for the document's lifetime), so the GC could free
   it mid-render and `CallPDF` silently dropped/blanked pages (12-page PDF -> 3
