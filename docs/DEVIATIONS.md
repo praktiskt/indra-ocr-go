@@ -9,33 +9,46 @@ method in [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-
 
 ## Text layer: spacing diacritics are composed
 
-- **What:** in the PDF text layer, a spacing diacritic is folded into the
-  precomposed form of the letter that immediately follows it (no space between).
-  Covered: acute `U+00B4` (`Cicho´n` -> `Cichoń`, `Fr´echet` -> `Fréchet`,
-  `Mej´ıa` -> `Mejía`), diaeresis `U+00A8` (`Gr¨obner` -> `Gröbner`), double
-  acute `U+02DD` (`Erd˝os` -> `Erdős`), cedilla `U+00B8` (`Fran¸cois` ->
-  `François`), SMALL TILDE `U+02DC` (`dissertaç˜ao` -> `dissertação`), grave
-  `U+0060` (word-initial `à`) and modifier-letter circumflex `U+02C6`
-  (`potˆencia` -> `potência`). The accent may be inside a word, at a word start
-  (after a space or the start of a segment, e.g. Portuguese `à`, `único`, `é`) or
-  right after an apostrophe (`d’´economie` -> `d’économie`). A diacritic directly
-  after a **number** is a unit symbol (a prime, e.g. `5´`) and is left; math
-  operators (`~`, `^`, macron `¯`) are not in the table, so equations are not
-  touched.
-- **Why:** PDFs draw the accent as a separate glyph positioned before its base,
-  and pdfium emits characters in content order, so the raw layer reads
-  `Cicho´n` / `Gr¨obner` / `dissertaç˜ao`. Upstream passes that through, but the
+- **What:** in the PDF text layer, a spacing accent glyph is folded into the
+  precomposed form of the base letter it belongs to. The spacing forms are the
+  TeX text-companion glyphs — grave `U+0060`/`U+02CB`, acute `U+00B4`/`U+02CA`,
+  circumflex `U+02C6`, tilde `U+02DC`, macron `U+00AF`/`U+02C9`, breve `U+02D8`,
+  dot above `U+02D9`, diaeresis `U+00A8`, ring above `U+02DA`, double acute
+  `U+02DD`, caron `U+02C7`, cedilla `U+00B8` and ogonek `U+02DB` — composed
+  through the full Unicode canonical table, so every base is handled:
+  `Cicho´n` -> `Cichoń`, `dissertaç˜ao` -> `dissertação`, `potˆencia` ->
+  `potência`, `Gr¨obner` -> `Gröbner`, `Huˇsková` -> `Hušková`,
+  `Dvoˇr´ak` -> `Dvořák`, `¯Riga` -> `Rīga`, `˙e` -> `ė`, `˚A` -> `Å` (Angstrom),
+  `˛a` -> `ą`, `ˆc` -> `ĉ` (Esperanto). Fonts that draw an accented i/j as a
+  dotless glyph (`Mej´ıa` -> `Mejía`, `ˆȷ` -> `ĵ`) are covered too.
+- **Both glyph orders.** Some producers draw the accent *after* its base
+  (`Schu¨tz`, `Geocieˆncias`), some *before* (`Cicho´n`). The text layer carries a
+  box per character, so the accent is joined to whichever neighbour its glyph box
+  overlaps; with no clear overlap (or none) it defaults to the prefix case.
+- **Not folded:** a mark whose neighbour has no precomposed form, a prime/trailing
+  symbol that does not overlap the preceding letter (`SplExtp´,`, `5´`), and the
+  ASCII operators `^`/`~` (never spacing marks). Multi-mark stacking
+  (Vietnamese `ế`) composes when the marks are adjacent to their base.
+- **Why:** PDFs draw the accent as a separate glyph positioned by its base, and
+  pdfium emits characters in content order, so the raw layer reads
+  `Cicho´n` / `Gr¨obner` / `Schu¨tz`. Upstream passes that through, but the
   recognizer does not — its vocab is NFC (`indra_ocr/vocab.py`), so the OCR path
-  already produces `Cichoń` / `Gröbner` / `dissertação`. This makes the two paths
-  agree.
-- **Where:** `pdfium.go` (`foldSpacingAccents`), text-layer extraction only; the
-  OCR path and image input are unchanged.
-- **Impact:** Latin accents in PDF text-layer text are normalized; numeric-unit
-  primes and math operators are not. Small volume. Checked against all 88
-  `realdoc_pdfs` OPB text layers (0 pages change) and the Portuguese thesis that
-  motivated it (7 pages, all corrected).
-- **Validation:** `TestFoldSpacingAccents` (containing/word-initial/apostrophe
-  cases, primes, and the excluded math operators).
+  already produces the precomposed form. This makes the two paths agree.
+- **Where:** `pdfium.go` (`foldSpacingAccents`); the spacing-mark set and the
+  composition table live in `compose_table.go`, generated from Python's
+  `unicodedata` by `tools/gen_compose.py`. Text-layer extraction only; the OCR
+  path and image input are unchanged.
+- **Impact:** Latin (and any canonically-composable) accents in PDF text-layer
+  text are normalized; primes, unit symbols and ASCII math are not. Precomposed
+  math decorations (`ḡ`, `ẋ`, `Ā`, `Å`) are a side effect of composing over a
+  letter and read the same. Measured over all 2149 OPB PDFs: the edit composes
+  29 macrons, 39 dots-above, 19 rings, 1 breve, 2 carons, 119 circumflexes, 96
+  tildes, 157 acutes, 78 diaereses and 12 graves that previously leaked; the
+  Portuguese prefix (`CallPDF` on the motivating thesis) is unchanged, and the
+  postfix Brazilian/PMC papers (`Geociências`, `Schröder`,
+  `Kansaneläkelaitos`) are fixed.
+- **Validation:** `TestFoldSpacingAccents` (prefix, marks/bases, primes, ASCII)
+  and `TestFoldSpacingAccentsOrder` (prefix vs postfix from boxes, stacking).
 
 ## `pdf_order` (PDF content order) not ported
 

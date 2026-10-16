@@ -434,82 +434,86 @@ func pdfProcess(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun,
 	return g, runs, nChars, nRot, invisible, true
 }
 
-// accentCompose maps a spacing diacritic that PDFs place before its base letter
-// to the base -> precomposed characters it forms. The keys are all accent glyphs
-// (acute, diaeresis, double acute, cedilla, small tilde, grave, circumflex). The
-// characters commonly used as math operators between letters (ASCII tilde `~`,
-// caret `^`, macron `¯`) are deliberately excluded so equations are not touched;
-// the paired exclusions matter, e.g. the modifier-letter circumflex U+02C6 is an
-// accent here while the ASCII caret U+005E is math.
-var accentCompose = map[rune]map[rune]rune{
-	'\u00b4': { // ACUTE ACCENT
-		'a': 'á', 'A': 'Á', 'c': 'ć', 'C': 'Ć', 'e': 'é', 'E': 'É', 'i': 'í', 'I': 'Í',
-		'l': 'ĺ', 'L': 'Ĺ', 'n': 'ń', 'N': 'Ń', 'o': 'ó', 'O': 'Ó', 'r': 'ŕ', 'R': 'Ŕ',
-		's': 'ś', 'S': 'Ś', 'u': 'ú', 'U': 'Ú', 'y': 'ý', 'Y': 'Ý', 'z': 'ź', 'Z': 'Ź',
-		'g': 'ǵ', 'G': 'Ǵ', 'w': 'ẃ', 'W': 'Ẃ', 'æ': 'ǽ', 'Æ': 'Ǽ',
-		'ı': 'í', // dotless i (Turkish/legacy) before an acute
-	},
-	'\u00a8': { // DIAERESIS
-		'a': 'ä', 'A': 'Ä', 'e': 'ë', 'E': 'Ë', 'i': 'ï', 'I': 'Ï',
-		'o': 'ö', 'O': 'Ö', 'u': 'ü', 'U': 'Ü', 'y': 'ÿ', 'Y': 'Ÿ',
-	},
-	'\u02dd': { // DOUBLE ACUTE
-		'o': 'ő', 'O': 'Ő', 'u': 'ű', 'U': 'Ű',
-	},
-	'\u00b8': { // CEDILLA
-		'c': 'ç', 'C': 'Ç', 's': 'ş', 'S': 'Ş', 't': 'ţ', 'T': 'Ţ', 'd': 'ḑ', 'D': 'Ḑ',
-	},
-	'\u02dc': { // SMALL TILDE (the spacing tilde accent, not ASCII `~`)
-		'a': 'ã', 'A': 'Ã', 'e': 'ẽ', 'E': 'Ẽ', 'i': 'ĩ', 'I': 'Ĩ',
-		'o': 'õ', 'O': 'Õ', 'u': 'ũ', 'U': 'Ũ', 'n': 'ñ', 'N': 'Ñ',
-		'y': 'ỹ', 'Y': 'Ỹ',
-	},
-	'\u0060': { // GRAVE ACCENT (spacing grave: Portuguese à, French où)
-		'a': 'à', 'A': 'À', 'e': 'è', 'E': 'È', 'i': 'ì', 'I': 'Ì',
-		'o': 'ò', 'O': 'Ò', 'u': 'ù', 'U': 'Ù', 'n': 'ǹ', 'N': 'Ǹ',
-		'w': 'ẁ', 'W': 'Ẁ', 'y': 'ỳ', 'Y': 'Ỳ',
-	},
-	'\u02c6': { // MODIFIER LETTER CIRCUMFLEX ACCENT (Portuguese â ê ô)
-		'a': 'â', 'A': 'Â', 'e': 'ê', 'E': 'Ê', 'i': 'î', 'I': 'Î',
-		'o': 'ô', 'O': 'Ô', 'u': 'û', 'U': 'Û', 'w': 'ŵ', 'W': 'Ŵ',
-		'y': 'ŷ', 'Y': 'Ŷ',
-	},
-}
-
-// foldSpacingAccents composes a spacing diacritic that PDFs place just before its
-// base letter: pdfium emits the accent glyph in content order, so "Cicho´n" and
-// "Gr¨obner" come out where the recognizer (whose vocab is NFC) gives "Cichoń"
-// and "Gröbner". This deviates from upstream indra, which does not normalize the
-// text layer — see docs/DEVIATIONS.md.
+// foldSpacingAccents composes a spacing diacritic that a PDF text layer places
+// next to its base letter. pdfium emits the accent glyph as a separate character
+// in content order, before or after the base depending on the PDF producer, so
+// "Cicho´n" (before) and "Schu¨tz" (after) both come out where the recognizer —
+// whose vocab is NFC — gives "Cichoń" / "Schütz". It is a deliberate deviation
+// from upstream indra, which does not normalize the text layer; see
+// docs/DEVIATIONS.md.
 //
-// A diacritic is composed only when the letter that immediately follows it (no
-// space in between) is one it forms a precomposed character with, and the glyph
-// is not a unit suffix attached to a number (a prime, '5´ = five feet', stays).
-// Otherwise it attaches forward: inside a word ("potˆencia" -> "potência"), at a
-// word start ("`a" -> "à", "´unico" -> "único") or after an apostrophe
-// ("d’´economie" -> "d’économie"). Math operators are not in the table at all,
-// so equations are never touched.
+// The spacing glyph is looked up in spacingMarks and composed through the
+// generated composeMark table (Unicode canonical composition), so every base a
+// mark can join is handled, and a double-marked letter (Vietnamese) builds up by
+// successive composition.
+//
+// Orientation: a prefix mark is drawn over/next to the *next* glyph, a postfix
+// mark over the *previous* one, and the text layer carries per-character boxes,
+// so the mark is joined to whichever neighbour its box overlaps more. A mark
+// whose neighbour has no precomposed form — a math operator, a unit prime after
+// a number, an unrecomposable base — is left as a spacing character. ASCII `^`
+// and `~` are not spacing marks, so equations are safe.
 func foldSpacingAccents(seg []TextChar) []TextChar {
 	out := make([]TextChar, 0, len(seg))
 	for i := 0; i < len(seg); i++ {
-		if i+1 < len(seg) && !afterNumber(seg, i) {
-			if m := accentCompose[seg[i].Ch]; m != nil {
-				if p, ok := m[seg[i+1].Ch]; ok {
-					nx := seg[i+1]
-					nx.Ch = p
-					out = append(out, nx)
-					i++
-					continue
-				}
+		mark, ok := spacingMarks[seg[i].Ch]
+		if !ok {
+			out = append(out, seg[i])
+			continue
+		}
+		pi := len(out) - 1
+		hasPrev := pi >= 0
+		hasNext := i+1 < len(seg)
+		fwd := hasNext && composable(mark, seg[i+1].Ch)
+		if fwd && hasPrev && unicode.IsNumber(out[pi].Ch) {
+			fwd = false // a prime attached to a number ("5´") is a unit symbol
+		}
+		bwd := hasPrev && composable(mark, out[pi].Ch)
+		// A postfix accent is only folded onto the previous character when its
+		// glyph actually sits over it: a prime or other trailing symbol is offset
+		// (or has no box), so "SplExtp´," keeps its prime.
+		postfix := false
+		if hasPrev && bwd {
+			if hasNext {
+				postfix = overlapX(seg[i].Box, out[pi].Box) > overlapX(seg[i].Box, seg[i+1].Box)
+			} else {
+				postfix = overlapX(seg[i].Box, out[pi].Box) > 0
 			}
 		}
-		out = append(out, seg[i])
+		switch {
+		case postfix:
+			out[pi].Ch = composeMark[mark][out[pi].Ch]
+		case fwd:
+			nx := seg[i+1]
+			nx.Ch = composeMark[mark][nx.Ch]
+			out = append(out, nx)
+			i++
+		case hasPrev && bwd && hasNext && isSpacingMark(seg[i+1].Ch):
+			// a run of marks over one base (stacked Vietnamese): the next glyph is
+			// another accent, so this one belongs to the base before it
+			out[pi].Ch = composeMark[mark][out[pi].Ch]
+		default:
+			out = append(out, seg[i])
+		}
 	}
 	return out
 }
 
-// afterNumber reports whether the diacritic at seg[i] directly follows a number,
-// so it is a unit symbol (a prime) rather than an accent on the next letter.
-func afterNumber(seg []TextChar, i int) bool {
-	return i > 0 && unicode.IsNumber(seg[i-1].Ch)
+func composable(mark, base rune) bool {
+	_, ok := composeMark[mark][base]
+	return ok
+}
+
+func isSpacingMark(r rune) bool {
+	_, ok := spacingMarks[r]
+	return ok
+}
+
+func overlapX(a, b [4]float64) float64 {
+	lo := math.Max(a[0], b[0])
+	hi := math.Min(a[2], b[2])
+	if hi > lo {
+		return hi - lo
+	}
+	return 0
 }

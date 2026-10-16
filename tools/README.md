@@ -12,6 +12,8 @@ library (`tools/` only holds `calib`, a small `main` package).
   models (`mathcls`/`math_enc`/`math_dec_init`/`math_dec_step` + `math_meta.json`)
   — shipped as upstream FP32 (`script` routes CJK lines to `rec_cjk`; the math
   models are used with `OCR.Math`).
+- `compose_table.go` (repo root) — the spacing-diacritic composition table used
+  by `foldSpacingAccents` in `pdfium.go` (`gen_compose.py`).
 
 The recognizer in `models/rec.onnx` is a mixed-precision int8 build of the
 upstream FP32 `rec.onnx`. Everything here reproduces it.
@@ -122,6 +124,21 @@ INDRA_CORPUS_DIR=/path/to/corpus go test -run TestCorpusRecall -count=1 -v
 
 Outputs stay `a`/`cls`/`same` (the `tab` output is gone), so `session_ort.go`
 loads it unchanged.
+
+## Regenerate `compose_table.go`
+
+`compose_table.go` (repo root) holds the spacing-diacritic → combining-mark map
+and the canonical (mark, base) → precomposed table used by `foldSpacingAccents`
+in `pdfium.go`. It is generated from Python's stdlib `unicodedata` (no
+dependencies) — do not hand-edit:
+
+```sh
+python3 tools/gen_compose.py > compose_table.go
+```
+
+`gen_compose.py` also maps the legacy dotless-i/j bases (some fonts draw an
+accented i/j as a dotless glyph) to the dotted base's result. To add an accent,
+add its spacing glyph to `SPACING` and regenerate.
 
 ## Native libraries (`lib/`)
 
