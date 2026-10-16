@@ -93,3 +93,25 @@ INDRA_CORPUS_DIR=/path/to/corpus go test -run TestCorpusRecall -count=1 -v
 
 Outputs stay `a`/`cls`/`same` (the `tab` output is gone), so `session_ort.go`
 loads it unchanged.
+
+## Native libraries (`lib/`)
+
+These are embedded (linux/amd64) and loaded at runtime — ONNX Runtime via
+`onnxruntime_go`, PDFium via `pdfium.go` (both from an anonymous memfd). See
+[`../LICENSE-LIBS`](../LICENSE-LIBS) for licenses.
+
+- **`lib/libpdfium.so`** — pinned to the pdfium-binaries release
+  **`chromium/8076`** (PDFium **156.0.8076.0**), sha256
+  `fd4de9f91f183476d04b1bc3fd17dacd95aba349c55d2c376512d95e082b441e`.
+  Reproduce/refresh with:
+
+  ```sh
+  sh tools/vendor_pdfium.sh
+  ```
+
+  To bump: set `RELEASE`/`SHA256` in the script and re-validate — rendering
+  feeds detect/rec/order, so run the guard and the OPB PDF suite before
+  committing (see [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-eval/SKILL.md)).
+- **`lib/libonnxruntime.so`**, **`lib/libstdc++.so.6`**, **`lib/libgcc_s.so.1`** —
+  ONNX Runtime **1.31.0** and its GCC 13 C++ runtime, embedded as shipped (no
+  fetch script).
