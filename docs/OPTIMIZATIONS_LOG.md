@@ -48,18 +48,20 @@ delta / baseline.
 - The renderer **PDFium** (BSD-3-Clause, 7.8 MB) is embedded and loaded from
   memfd like ONNX Runtime; every entry point is resolved with `dlsym`, so the Go
   module gains no PDF dependency. `loadPDFium` is lazy.
-- **Quality:** OPB `realdoc_pdfs` (88 pages, `auto`) headline ~0.68-0.70 (3
-  runs) vs upstream **0.7121** — within the +-2pp run noise below. The default
-  OCR path is unaffected.
+- **Quality:** OPB `realdoc_pdfs` (88 pages, `auto`) headline **0.6964** (text
+  0.643, layout 0.750) vs upstream **0.7121** (-1.6pp), deterministic. The
+  default OCR path is unaffected.
 - `mode="ocr"` ignores the text layer; `PDFOptions.DPI` defaults to 200.
-- **`pdf_order` (content order) not shipped:** ported (`order_backtracks` +
-  `pdf_order_coherent` + content keys through the split/order) but it does not
-  help — 3 runs each on OPB `realdoc_pdfs`: ON 0.670 vs OFF 0.682, with +-2pp
-  run noise. Left as an open item; Go orders with the order model.
-- **Open: the PDF text path is not bit-reproducible** — OPB `realdoc_pdfs` flips
-  ~5/88 pages run to run (layout-class changes on text/hybrid pages). The plain
-  OCR path (PNG input) is deterministic (0/20 and the corpus dumps). Probably in
-  the `CallText` text-layer assembly; needs a root cause.
+- **`pdf_order` (content order) not shipped — comparison invalidated:** an
+  earlier port (order_backtracks + pdf_order_coherent + content keys through the
+  split/order) looked neutral-to-worse (ON 0.670 vs OFF 0.682) but that was
+  measured while the buffer bug below was dropping/blanking pages, so it is not a
+  result. Go currently orders with the order model; re-test against the fixed
+  build if pursued.
+- **Resolved (was "not bit-reproducible"): the buffer fix below explains it.** OPB
+  `realdoc_pdfs` used to flip ~5/88 pages run to run; that was the GC freeing the
+  PDF buffer mid-render, not the `CallText` assembly. Now 0/88 differ and the
+  headline is stable.
 - **Fix (post-v0.24.0): PDFium buffer lifetime.** `pdfOpen` handed
   `FPDF_LoadMemDocument64` a Go heap slice; pdfium does **not** copy it (the
   caller must keep it valid for the document's lifetime), so the GC could free
