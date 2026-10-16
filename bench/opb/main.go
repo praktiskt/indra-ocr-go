@@ -25,6 +25,7 @@ import (
 type item struct {
 	PageID string `json:"page_id"`
 	PNG    string `json:"png"`
+	PDF    string `json:"pdf"`
 	Suite  string `json:"suite"`
 }
 
@@ -49,6 +50,7 @@ func main() {
 	threads := flag.Int("threads", 1, "intra-op threads per worker")
 	furniture := flag.Bool("furniture", false, "keep page headers/footers in markdown")
 	mathOn := flag.Bool("math", false, "read math lines as LaTeX")
+	usePDF := flag.Bool("pdf", false, "feed the item's pdf via CallPDF (needs a 'pdf' path)")
 	flag.Parse()
 	if *manifest == "" || *out == "" {
 		log.Fatal("need -manifest and -out")
@@ -72,16 +74,29 @@ func main() {
 
 	t0 := time.Now()
 	for i, it := range items {
-		data, err := os.ReadFile(it.PNG)
-		if err != nil {
-			continue
-		}
-		img, err := png.Decode(bytes.NewReader(data))
-		if err != nil {
-			continue
-		}
 		s := time.Now()
-		page := p.Call(indra.FromImage(img))
+		var page *indra.Page
+		if *usePDF && it.PDF != "" {
+			pdfData, err := os.ReadFile(it.PDF)
+			if err != nil {
+				continue
+			}
+			pages, err := p.CallPDF(pdfData, nil)
+			if err != nil || len(pages) == 0 {
+				continue
+			}
+			page = pages[0]
+		} else {
+			data, err := os.ReadFile(it.PNG)
+			if err != nil {
+				continue
+			}
+			img, err := png.Decode(bytes.NewReader(data))
+			if err != nil {
+				continue
+			}
+			page = p.Call(indra.FromImage(img))
+		}
 		ms := float64(time.Since(s).Microseconds()) / 1000
 		r := row{PageID: it.PageID, Suite: it.Suite, Markdown: page.Markdown, MS: ms}
 		for _, b := range page.Blocks {

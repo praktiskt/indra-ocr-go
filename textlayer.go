@@ -221,8 +221,12 @@ func assignRuns(runs []TextRun, boxes [][4]float64) ([]string, int) {
 		assign := map[int][]rune{}
 		var order []int
 		if len(run.Chars) > 0 {
+			last := -1
 			for _, tc := range run.Chars {
 				if unicode.IsSpace(tc.Ch) {
+					if last >= 0 {
+						assign[last] = append(assign[last], tc.Ch)
+					}
 					continue
 				}
 				cx := (tc.Box[0] + tc.Box[2]) / 2
@@ -230,12 +234,14 @@ func assignRuns(runs []TextRun, boxes [][4]float64) ([]string, int) {
 				j := smallestContaining(boxes, area, cx, cy)
 				if j < 0 {
 					lost++
+					last = -1
 					continue
 				}
 				if _, ok := assign[j]; !ok {
 					order = append(order, j)
 				}
 				assign[j] = append(assign[j], tc.Ch)
+				last = j
 			}
 		} else {
 			cx := (run.Box[0] + run.Box[2]) / 2
