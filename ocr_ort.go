@@ -62,6 +62,12 @@ type OCR struct {
 	// Furniture keeps page headers and footers in Markdown (upstream
 	// load(furniture=True)). The default, false, drops them. Set before Call.
 	Furniture bool
+	// Math reads math lines as text with inline LaTeX (upstream math=True,
+	// default off). The math models are embedded and load lazily on first use.
+	Math       bool
+	mathOnce   sync.Once
+	mathReader *MathReader
+	mathErr    error
 }
 
 // NewOCR opens sessions from embedded models.
@@ -86,8 +92,20 @@ func NewOCRWithThreads(tc Threads) (*OCR, error) {
 	return &OCR{S: s, M: m, V: m.Vocab}, nil
 }
 
-// Close releases sessions.
-func (o *OCR) Close() { o.S.Close() }
+// Close releases sessions, including lazily loaded math sessions.
+func (o *OCR) Close() {
+	o.mathReader.Destroy()
+	o.S.Close()
+}
+
+// math returns the lazily loaded math reader, or nil unless OCR.Math is set.
+func (o *OCR) math() *MathReader {
+	if !o.Math {
+		return nil
+	}
+	o.mathOnce.Do(func() { o.mathReader, o.mathErr = newMathReader() })
+	return o.mathReader
+}
 
 // Token is (id, page-x) from a CTC peak.
 type Token struct {
@@ -322,6 +340,29 @@ func (o *OCR) Recognize(g *Gray, boxes [][4]float32) []recLine {
 	o.recognizeSel(out, boxes, crops, latin, o.S.RunRec, o.V)
 	if len(cjk) > 0 {
 		o.recognizeSel(out, boxes, crops, cjk, o.S.RunRecCJK, o.M.VocabCJK)
+	}
+	// Math lines: replace the recognizer's reading with LaTeX when confident.
+	if mr := o.math(); mr != nil {
+		flagged := mr.flags(crops)
+		var sel []int
+		for j, f := range flagged {
+			if f {
+				sel = append(sel, j)
+			}
+		}
+		if len(sel) > 0 {
+			sub := make([][4]float32, len(sel))
+			for k, j := range sel {
+				sub[k] = boxes[j]
+			}
+			reads := mr.read(g, sub)
+			for k, j := range sel {
+				if reads[k].conf >= mathMinConf && strings.Contains(reads[k].text, "$") {
+					xc := float64(boxes[j][0]+boxes[j][2]) / 2
+					out[j] = recLine{text: reads[k].text, conf: 1.0, toks: []Token{{ID: -1, X: xc}}}
+				}
+			}
+		}
 	}
 	return out
 }

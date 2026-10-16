@@ -3,10 +3,11 @@ package indra
 import "embed"
 
 // modelFS holds the embedded Indra OCR models (datalab-to/indra-ocr v3.1):
-// det, rec, rec_cjk (CJK recognizer), script (the line script classifier that
-// routes to rec_cjk), order, orient + meta.json.
+// det, rec, rec_cjk (CJK recognizer), script (line script classifier), order,
+// orient, the math models (mathcls, math_enc, math_dec_init, math_dec_step and
+// math_meta.json) and meta.json.
 //
-//go:embed models/det.onnx models/rec.onnx models/rec_cjk.onnx models/script.onnx models/order.onnx models/meta.json models/orient.onnx
+//go:embed models/det.onnx models/rec.onnx models/rec_cjk.onnx models/script.onnx models/order.onnx models/meta.json models/orient.onnx models/mathcls.onnx models/math_enc.onnx models/math_dec_init.onnx models/math_dec_step.onnx models/math_meta.json
 var modelFS embed.FS
 
 // libFS holds the embedded native libraries (linux/amd64):

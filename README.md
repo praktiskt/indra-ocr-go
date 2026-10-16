@@ -2,7 +2,7 @@
 
 Native Go port of the [Indra OCR pipeline](https://github.com/datalab-to/indra) (Apache-2.0).
 
-~1M-parameter recognizer (Latin/multi + CJK) plus detector, ordering, orientation and script-classifier models on ONNX Runtime, CPU only.
+~1M-parameter recognizer (Latin/multi + CJK) plus detector, ordering, orientation, script-classifier and math (LaTeX) models on ONNX Runtime, CPU only.
 
 The recognizer ships as a mixed-precision int8 build (stem + first two blocks kept FP32, and Convs promoted Conv1d→Conv2d so ONNX Runtime applies its NCHWc layout): ~2.4x faster than the FP32 model at the pool's one-thread-per-worker setting for ~0.15pp less word recall. See [`tools/`](tools/README.md) for the recipe.
 
@@ -129,10 +129,11 @@ them.
 | `(*OCR).CallAll(pages)` | Batch OCR on one handle, stages pipelined across pages |
 | `(*OCR).CallText(page, layer)` | OCR using a caller-supplied PDF text layer (`mode="auto"`) |
 | `(*OCR).Furniture` | Keep page headers/footers in the markdown |
+| `(*OCR).Math` | Read math lines as LaTeX (upstream `math=True`; embeds ~20 MB) |
 | `(*Page).Text()` | Reading-order line texts joined by newlines |
 | `NewPool(workers, threads)` | Create concurrent pool (explicit sizing) |
 | `NewPoolAuto()` | Pool sized for the host (AutoWorkers, 1 thread each) |
-| `NewPoolBuilder()` | Chainable builder: Workers/Threads/ThreadsPerModel/MemBudget/Furniture |
+| `NewPoolBuilder()` | Chainable builder: Workers/Threads/ThreadsPerModel/MemBudget/Furniture/Math |
 | `AutoWorkers()` | Default worker count (NumCPU/2) |
 | `PerHandleBytes` | Estimated resident memory per worker (budget unit) |
 | `(*Pool).CallAll(pages)` | Batch OCR across pool workers, pipelined within each |

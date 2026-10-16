@@ -188,7 +188,8 @@ Two runners, one scorer:
    - prep: render each page to PNG at **dpi 200** (matching indra) with
      pypdfium2; `.png` docs pass through; write a `manifest.json`.
    - OCR: `bench/opb/main.go` reads the manifest, runs the pool **one page at a
-     time**, and writes `{page_id, markdown, blocks:[{label,bbox,text}]}` JSONL.
+     time**, and writes `{page_id, markdown, blocks:[{label,bbox,text}]}` JSONL
+     (flags: `-furniture`, `-math`; upstream's `--math` is 2-5x slower).
    - score: `bench/opb/score.py` builds the `{html, blocks}` outputs (Go block
      classes map 1:1 onto the benchmark's labels, `Table-Of-Contents` -> `text`)
      and prints the summary; the full one lands in `<name>_summary.json`.

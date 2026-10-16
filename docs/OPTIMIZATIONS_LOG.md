@@ -37,6 +37,22 @@ delta / baseline.
   monotonically (stem+blocks0-3: 21.4 p/s, -0.05pp; stem only: 23.2 p/s, -0.41pp
   but -2/-2.5pp on degraded/photo).
 
+### Math / LaTeX: embedded encoder-decoder — `v0.22.0`
+
+- Ports upstream `math.py`: `mathcls.onnx` flags lines that hold math and a
+  small encoder/decoder (`math_enc` + `math_dec_init` + `math_dec_step`, with a
+  self/cross K/V cache stepped one token at a time) reads them as text with
+  inline LaTeX. `OCR.Math` / `PoolBuilder.Math` enable it — off by default like
+  upstream `math=True`; the ~20 MB of models are embedded but load lazily, so an
+  unused handle pays nothing.
+- Binding detail: the ORT Go binding rejects 0-dim tensors, so the scalar `pos`
+  input is fed with `ort.NewScalar[int64]` (a rank-1 `[1]` tensor made the
+  decoder mis-shape and error).
+- **Quality:** OPB `olmo_arxiv_math` suite (514 pages) headline **0.7893** with
+  math vs upstream `--math` **0.7899** (-0.06pp); *without* math both are
+  exactly 0.5069. Median 921 ms vs upstream 4378 ms (~4.7x).
+- Off the default path: only enabled with `Math=true`.
+
 ### CJK routing: script.onnx -> rec_cjk.onnx — `v0.21.0`
 
 - The port ran only the Latin/multi recognizer; CJK lines were confabulated
