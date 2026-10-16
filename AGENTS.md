@@ -9,6 +9,21 @@ Native Go port of the [Indra OCR pipeline](https://github.com/datalab-to/indra)
 order and orientation on ONNX Runtime, **CPU only**. Models and the native
 ONNX Runtime libraries are embedded; nothing is downloaded at runtime.
 
+## Keep these documents current
+
+`AGENTS.md` (this file), [`docs/OPTIMIZATIONS_LOG.md`](docs/OPTIMIZATIONS_LOG.md)
+and [`.agents/skills/corpus-eval/SKILL.md`](.agents/skills/corpus-eval/SKILL.md)
+are living documents. **Update them in the same commit as the change, never
+"later":**
+
+- Accepted or rejected an optimization -> add/adjust its entry in
+  `docs/OPTIMIZATIONS_LOG.md` (status, config, numbers, why). This is what stops
+  settled questions from being re-litigated.
+- Changed files, env vars, commands, conventions or layout -> update this
+  `AGENTS.md`.
+- Changed the corpus, guard, gauntlet or A/B procedure -> update the skill.
+- A doc that contradicts the code is wrong: the code wins, fix the doc.
+
 ## Build & test
 
 ```sh
