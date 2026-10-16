@@ -126,9 +126,13 @@ func newOptions(threads int) (*ort.SessionOptions, error) {
 	if err := o.SetGraphOptimizationLevel(ort.GraphOptimizationLevelEnableAll); err != nil {
 		return nil, err
 	}
-	// Arena off: saves ~58MB RSS per handle vs ~1% within-noise throughput
-	// cost (A/B'd on the FUNSD guard; identical output).
-	if err := o.SetCpuMemArena(true); err != nil {
+	// CPU memory arena OFF. Matches upstream indra_ocr and keeps RSS within
+	// PerHandleBytes: measured on the FUNSD corpus at 8 workers x 1 thread,
+	// arena ON is ~3% faster (22.95 vs 22.12 pages/s) but ~245MB -> ~360MB
+	// RSS per handle (2.88GB vs 1.96GB, and still growing with pages). The
+	// 512px rec width batching bounds the per-shape growth, but the RSS cost
+	// is real enough that the memory budget assumes arena off.
+	if err := o.SetCpuMemArena(false); err != nil {
 		return nil, err
 	}
 	if err := o.SetMemPattern(true); err != nil {
