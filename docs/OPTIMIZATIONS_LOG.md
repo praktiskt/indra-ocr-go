@@ -37,7 +37,7 @@ delta / baseline.
   monotonically (stem+blocks0-3: 21.4 p/s, -0.05pp; stem only: 23.2 p/s, -0.41pp
   but -2/-2.5pp on degraded/photo).
 
-### PDF input: embedded PDFium + auto text layer — `v0.23.0`
+### PDF input: embedded PDFium + auto text layer — `v0.24.0`
 
 - `OCR.CallPDF` / `Pool.CallPDF` render PDF bytes and, in `mode="auto"`, use
   each page's text layer where sound (the `CallText` hybrid path) — upstream
@@ -61,7 +61,7 @@ delta / baseline.
   OCR path (PNG input) is deterministic (0/20 and the corpus dumps). Probably in
   the `CallText` text-layer assembly; needs a root cause.
 
-### Math / LaTeX: embedded encoder-decoder — `v0.22.0`
+### Math / LaTeX: embedded encoder-decoder — `v0.23.0`
 
 - Ports upstream `math.py`: `mathcls.onnx` flags lines that hold math and a
   small encoder/decoder (`math_enc` + `math_dec_init` + `math_dec_step`, with a
@@ -77,7 +77,19 @@ delta / baseline.
   exactly 0.5069. Median 921 ms vs upstream 4378 ms (~4.7x).
 - Off the default path: only enabled with `Math=true`.
 
-### CJK routing: script.onnx -> rec_cjk.onnx — `v0.21.0`
+### Furniture + caller-supplied PDF text layer — `v0.21.0`
+
+- `OCR.Furniture` / `PoolBuilder.Furniture(bool)` keep page headers/footers in
+  the markdown (upstream `load(furniture=True)`); the default drops them. On OPB
+  this is the whole `header_footer` gap (0.146 -> 0.589 vs upstream 0.606).
+- `TextLayer` / `TextRun` / `TextChar` + `OCR.CallText` / `Pool.CallText` port
+  `textlayer.py`'s trust checks (invisible layer, broken font map, runs with no
+  ink, `readable`) and `document.assign_runs`: a caller that extracts a PDF's
+  text runs gets the hybrid "auto" path (`Source` text/hybrid). Go carries no
+  PDF engine here — the caller supplies the runs.
+- `Page.Text()` (upstream `Page.text`).
+
+### CJK routing: script.onnx -> rec_cjk.onnx — `v0.22.0`
 
 - The port ran only the Latin/multi recognizer; CJK lines were confabulated
   (gauntlet failure class 1: zh/ja ~0.4-0.6). It now matches upstream
