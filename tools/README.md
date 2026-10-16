@@ -9,9 +9,10 @@ library (`tools/` only holds `calib`, a small `main` package).
 - `models/order.onnx` — reading order, tab-head-stripped + dynamic int8
   (`quantize_order.py`).
 - `models/det.onnx`, `models/orient.onnx`, `models/script.onnx` and the math
-  models (`mathcls`/`math_enc`/`math_dec_init`/`math_dec_step` + `math_meta.json`)
-  — shipped as upstream FP32 (`script` routes CJK lines to `rec_cjk`; the math
-  models are used with `OCR.Math`).
+  classifier (`mathcls`) — shipped as upstream FP32. The math decoder step
+  (`math_dec_step`) is dynamic int8 (`quantize_math.py`, logits head excluded);
+  `math_enc`/`math_dec_init` are still FP32. `script` routes CJK lines to
+  `rec_cjk`; the math models are used with `OCR.Math`.
 
 The recognizer in `models/rec.onnx` is a mixed-precision int8 build of the
 upstream FP32 `rec.onnx`. Everything here reproduces it.
@@ -122,6 +123,25 @@ INDRA_CORPUS_DIR=/path/to/corpus go test -run TestCorpusRecall -count=1 -v
 
 Outputs stay `a`/`cls`/`same` (the `tab` output is gone), so `session_ort.go`
 loads it unchanged.
+
+## Regenerate the math models
+
+Dynamic int8 (per-channel `QUInt8` on MatMul/Gemm weights, no calibration — the
+`order.onnx` recipe), via `tools/quantize_math.py`. The math models are a
+Conformer encoder + autoregressive decoder used with `OCR.Math` (off by
+default).
+
+```sh
+uv run --with onnx --with onnxruntime --with numpy \
+  tools/quantize_math.py --model /tmp/math_dec_step_fp32.onnx \
+  --out models/math_dec_step.onnx --exclude /out/MatMul
+```
+
+`--exclude /out/MatMul` keeps the decoder's final vocab projection FP32: it feeds
+an argmax over 652 classes, and quantizing it flipped tokens (OPB
+`olmo_arxiv_math` text 0.61484 -> 0.61272; excluding it 0.61449). Validate any
+math-model change on OPB `olmo_arxiv_math` (514 pages, `-math`) — the `text`
+family is the signal; FUNSD/xfund do not exercise the math models.
 
 ## Native libraries (`lib/`)
 

@@ -18,6 +18,24 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### Math decoder step (`math_dec_step`): dynamic int8, logits head protected — *unreleased (batch)*
+
+- `math_dec_step.onnx` is the hot math model: it is run **once per decoded
+  token** (up to `max_tokens-1` = 319 serial ORT runs per line batch), 31
+  `MatMul` (16 with constant weights), 10 `LayerNorm`.
+- **Dynamic int8** (per-channel `QUInt8` on MatMul/Gemm weights, no calibration —
+  the `order.onnx` recipe, `tools/quantize_math.py`): 8.43 -> 3.82 MB.
+- **But quantizing the logits head flips tokens.** Full dynamic int8 moved OPB
+  `olmo_arxiv_math` (514 pages) text 0.61484 -> 0.61272, headline 0.78932 ->
+  0.78826 (-0.11pp): 193/514 pages differ, all near-identical (char sim > 0.97)
+  — the final projection (`/out/MatMul`, 192 -> 652 classes) feeds an argmax, and
+  8-bit rounding on the class logits crosses decision boundaries.
+- **Excluding `/out/MatMul` recovers it:** text 0.61449, headline 0.78914
+  (-0.02pp vs fp32), per_suite 0.66167 (fp32 0.66198). Size 4.19 MB (-50%).
+- Shipped: `tools/quantize_math.py --model <fp32> --out models/math_dec_step.onnx
+  --exclude /out/MatMul` (byte-reproducible).
+- FUNSD/xfund not run here: the math models are off the default path (`OCR.Math`).
+
 ### CJK recognizer (`rec_cjk`): mixed-precision int8 — *unreleased (batch)*
 
 - **The rec recipe applies verbatim.** `rec_cjk.onnx` is exported from the same
