@@ -326,6 +326,20 @@ delta / baseline.
 
 ## Rejected (do not re-run without new data)
 
+### `script.onnx` / `mathcls.onnx` int8
+
+- Both are 0.19 MB, 4-conv 2D CNNs run once per line batch (`script` routes CJK
+  lines, `mathcls` flags math lines). Dynamic int8 (including the Convs) shrinks
+  each to 0.06 MB (-0.13 MB, -0.26 MB total).
+- **Slower AND flips decisions.** OPB `cjk36` median 215 -> 234 ms (+9%): ORT's
+  NCHWc transformer does not lower quantized convs, so the tiny net drops to the
+  slow generic conv path (the same effect that killed **Detector int8** above),
+  and 8-bit rounding crosses the binary threshold on marginal inputs — 1/36 CJK
+  pages rerouted (`script`; a Korean page the FP32 build already garbles) and
+  6/48 math pages changed (`mathcls`).
+- 0.26 MB saved for a measurable slowdown and routing sensitivity on the CJK/math
+  paths — not worth it. (`script` and `mathcls` share the architecture.)
+
 ### Detector resolution below 1024
 
 - 768: shifts output on 178/199 pages, degrades 10 pages 5-15pp (Latin forms gain
