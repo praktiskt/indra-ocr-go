@@ -96,6 +96,30 @@ each: throughput plateaus by then, and each extra worker costs a handle
 (~120-260MB). `MemBudget` trades workers for a memory ceiling; a few pages of
 `Call` or `CallAll` per pool is the intended use.
 
+## Text layer & furniture
+
+Upstream reads a PDF's text layer where it is sound and OCRs the rest
+(`mode="auto"`). This port carries no PDF engine, so the **caller** extracts the
+runs and hands them over:
+
+```go
+page := ocr.CallText(gray, &indra.TextLayer{Runs: []indra.TextRun{
+    {Text: "Hello", Box: [4]float64{x0, y0, x1, y1}},
+    // ... runs in PDF content order. Add per-char Chars to split a run
+    // across detected lines (e.g. table cells).
+}})
+```
+
+`CallText` trusts the layer only when it is not invisible (render mode 3), has no
+broken-font characters, and its runs sit on ink (the `indra_ocr/textlayer.py`
+checks); otherwise it falls back to plain OCR. `Page.Source` is `"text"` or
+`"hybrid"` (lines the layer does not cover are OCR'd). Ordering uses the order
+model; upstream `pdf_order` is not yet ported.
+
+`ocr.Furniture = true` (or `PoolBuilder.Furniture(true)`) keeps page headers and
+footers in the markdown, as upstream `load(furniture=True)`; the default drops
+them.
+
 ## API
 
 | Function | Description |
@@ -103,12 +127,16 @@ each: throughput plateaus by then, and each extra worker costs a handle
 | `InitLib()` | Initialize ONNX Runtime library |
 | `NewOCR(threads)` | Create OCR pipeline |
 | `(*OCR).CallAll(pages)` | Batch OCR on one handle, stages pipelined across pages |
+| `(*OCR).CallText(page, layer)` | OCR using a caller-supplied PDF text layer (`mode="auto"`) |
+| `(*OCR).Furniture` | Keep page headers/footers in the markdown |
+| `(*Page).Text()` | Reading-order line texts joined by newlines |
 | `NewPool(workers, threads)` | Create concurrent pool (explicit sizing) |
 | `NewPoolAuto()` | Pool sized for the host (AutoWorkers, 1 thread each) |
-| `NewPoolBuilder()` | Chainable builder: Workers/Threads/ThreadsPerModel/MemBudget |
+| `NewPoolBuilder()` | Chainable builder: Workers/Threads/ThreadsPerModel/MemBudget/Furniture |
 | `AutoWorkers()` | Default worker count (NumCPU/2) |
 | `PerHandleBytes` | Estimated resident memory per worker (budget unit) |
 | `(*Pool).CallAll(pages)` | Batch OCR across pool workers, pipelined within each |
+| `(*Pool).CallText(page, layer)` | OCR with a caller-supplied text layer, over the pool |
 | `(*Pool).CallFiles(paths)` | Read+decode files in parallel, OCR over the pool (paths -> pages) |
 | `VocabFromJSON(s)` | Parse vocabulary JSON |
 | `NewVocab(chars)` | Create vocabulary |

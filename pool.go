@@ -65,6 +65,7 @@ type PoolBuilder struct {
 	threads   int
 	tc        *Threads
 	memBudget int64
+	furniture bool
 }
 
 // NewPoolBuilder starts a builder with all defaults (see Build).
@@ -85,10 +86,14 @@ func (b *PoolBuilder) ThreadsPerModel(tc Threads) *PoolBuilder { b.tc = &tc; ret
 // pages). <=0 means no cap.
 func (b *PoolBuilder) MemBudget(bytes int64) *PoolBuilder { b.memBudget = bytes; return b }
 
+// Furniture keeps page headers and footers in each page's Markdown
+// (upstream load(furniture=True)); default drops them.
+func (b *PoolBuilder) Furniture(v bool) *PoolBuilder { b.furniture = v; return b }
+
 // Build opens the pool.
 func (b *PoolBuilder) Build() (*Pool, error) {
 	workers, tc := resolvePool(b.workers, b.threads, b.tc, b.memBudget)
-	return NewPoolWithThreads(workers, tc)
+	return newPool(workers, tc, b.furniture)
 }
 
 // NewPoolAuto opens a pool sized for the host: AutoWorkers single-threaded
@@ -110,6 +115,11 @@ func NewPool(workers, threads int) (*Pool, error) {
 
 // NewPoolWithThreads opens workers OCR handles with per-model counts.
 func NewPoolWithThreads(workers int, tc Threads) (*Pool, error) {
+	return newPool(workers, tc, false)
+}
+
+// newPool opens workers handles with per-model thread counts and options.
+func newPool(workers int, tc Threads, furniture bool) (*Pool, error) {
 	if workers < 1 {
 		workers = 1
 	}
@@ -130,6 +140,7 @@ func NewPoolWithThreads(workers int, tc Threads) (*Pool, error) {
 				mu.Unlock()
 				return
 			}
+			o.Furniture = furniture
 			p.ch <- o
 		}()
 	}
@@ -146,6 +157,14 @@ func (p *Pool) Call(g *Gray) *Page {
 	o := <-p.ch
 	defer func() { p.ch <- o }()
 	return o.Call(g)
+}
+
+// CallText OCRs one page with a caller-supplied PDF text layer (see
+// OCR.CallText), blocking for a free worker.
+func (p *Pool) CallText(g *Gray, tl *TextLayer) *Page {
+	o := <-p.ch
+	defer func() { p.ch <- o }()
+	return o.CallText(g, tl)
 }
 
 // CallAll OCRs pages, spreading them over the pool's workers and pipelining

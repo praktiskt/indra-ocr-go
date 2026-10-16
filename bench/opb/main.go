@@ -47,6 +47,7 @@ func main() {
 	out := flag.String("out", "", "output JSONL")
 	workers := flag.Int("workers", 8, "pool workers")
 	threads := flag.Int("threads", 1, "intra-op threads per worker")
+	furniture := flag.Bool("furniture", false, "keep page headers/footers in markdown")
 	flag.Parse()
 	if *manifest == "" || *out == "" {
 		log.Fatal("need -manifest and -out")
@@ -57,7 +58,7 @@ func main() {
 	var items []item
 	check(json.Unmarshal(raw, &items))
 
-	p, err := indra.NewPool(*workers, *threads)
+	p, err := indra.NewPoolBuilder().Workers(*workers).Threads(*threads).Furniture(*furniture).Build()
 	check(err)
 	defer p.Close()
 
