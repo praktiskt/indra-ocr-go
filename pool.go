@@ -66,6 +66,7 @@ type PoolBuilder struct {
 	tc        *Threads
 	memBudget int64
 	furniture bool
+	math      bool
 }
 
 // NewPoolBuilder starts a builder with all defaults (see Build).
@@ -90,10 +91,14 @@ func (b *PoolBuilder) MemBudget(bytes int64) *PoolBuilder { b.memBudget = bytes;
 // (upstream load(furniture=True)); default drops them.
 func (b *PoolBuilder) Furniture(v bool) *PoolBuilder { b.furniture = v; return b }
 
+// Math reads math lines as text with inline LaTeX (upstream math=True);
+// default off.
+func (b *PoolBuilder) Math(v bool) *PoolBuilder { b.math = v; return b }
+
 // Build opens the pool.
 func (b *PoolBuilder) Build() (*Pool, error) {
 	workers, tc := resolvePool(b.workers, b.threads, b.tc, b.memBudget)
-	return newPool(workers, tc, b.furniture)
+	return newPool(workers, tc, b.furniture, b.math)
 }
 
 // NewPoolAuto opens a pool sized for the host: AutoWorkers single-threaded
@@ -115,11 +120,11 @@ func NewPool(workers, threads int) (*Pool, error) {
 
 // NewPoolWithThreads opens workers OCR handles with per-model counts.
 func NewPoolWithThreads(workers int, tc Threads) (*Pool, error) {
-	return newPool(workers, tc, false)
+	return newPool(workers, tc, false, false)
 }
 
 // newPool opens workers handles with per-model thread counts and options.
-func newPool(workers int, tc Threads, furniture bool) (*Pool, error) {
+func newPool(workers int, tc Threads, furniture, mathOn bool) (*Pool, error) {
 	if workers < 1 {
 		workers = 1
 	}
@@ -141,6 +146,7 @@ func newPool(workers int, tc Threads, furniture bool) (*Pool, error) {
 				return
 			}
 			o.Furniture = furniture
+			o.Math = mathOn
 			p.ch <- o
 		}()
 	}
