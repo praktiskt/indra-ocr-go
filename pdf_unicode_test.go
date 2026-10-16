@@ -29,10 +29,23 @@ func TestFoldSpacingAccents(t *testing.T) {
 		"the Gr\u00a8obner": "the Gr\u00f6bner",
 		"Erd\u02ddos":       "Erd\u0151s",
 		"Fran\u00b8cois":    "Fran\u00e7ois",
-		// primes (next char is not a letter): kept
-		"SplExtp\u00b4,":   "SplExtp\u00b4,",
-		"r\u00b4, \u00b4s": "r\u00b4, \u00b4s",
-		// math operators between letters: never touched
+		// word-initial accents: the accent glyph follows a space or starts the run
+		"\u00b4unico":         "\u00fanico",
+		"Zipf \u00b4e":        "Zipf \u00e9",
+		"o \u00b4\u0131ndice": "o \u00edndice",
+		"`a Dra.":             "\u00e0 Dra.",
+		"associados `as":      "associados \u00e0s",
+		// Portuguese tilde / circumflex (modifier-letter accents, inside a word)
+		"disserta\u00e7\u02dcao": "disserta\u00e7\u00e3o",
+		"orienta\u00e7\u02dcao":  "orienta\u00e7\u00e3o",
+		"reuni\u02dcoes":         "reuni\u00f5es",
+		"pot\u02c6encia":         "pot\u00eancia",
+		"par\u02c6ametro":        "par\u00e2metro",
+		// a prime attached to a number stays; an accent after an apostrophe composes
+		"SplExtp\u00b4,":        "SplExtp\u00b4,",
+		"5\u00b4s":              "5\u00b4s",
+		"d\u2019\u00b4economie": "d\u2019\u00e9conomie",
+		// math operators: not in the table (or not a composable base) -> untouched
 		"g\u00afi":           "g\u00afi",
 		"Ham\u005ec":         "Ham\u005ec",
 		"U\u02dcpBq":         "U\u02dcpBq",

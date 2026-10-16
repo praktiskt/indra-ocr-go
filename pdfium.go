@@ -435,10 +435,12 @@ func pdfProcess(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun,
 }
 
 // accentCompose maps a spacing diacritic that PDFs place before its base letter
-// to the base -> precomposed characters it forms. Only diacritics that are
-// unambiguous accents (acute, diaeresis, double acute, cedilla) are here; those
-// commonly used as math operators between letters (^ ~ ` ¯ ˆ, SMALL TILDE) are
-// deliberately excluded — folding them would corrupt equations.
+// to the base -> precomposed characters it forms. The keys are all accent glyphs
+// (acute, diaeresis, double acute, cedilla, small tilde, grave, circumflex). The
+// characters commonly used as math operators between letters (ASCII tilde `~`,
+// caret `^`, macron `¯`) are deliberately excluded so equations are not touched;
+// the paired exclusions matter, e.g. the modifier-letter circumflex U+02C6 is an
+// accent here while the ASCII caret U+005E is math.
 var accentCompose = map[rune]map[rune]rune{
 	'\u00b4': { // ACUTE ACCENT
 		'a': 'á', 'A': 'Á', 'c': 'ć', 'C': 'Ć', 'e': 'é', 'E': 'É', 'i': 'í', 'I': 'Í',
@@ -457,6 +459,21 @@ var accentCompose = map[rune]map[rune]rune{
 	'\u00b8': { // CEDILLA
 		'c': 'ç', 'C': 'Ç', 's': 'ş', 'S': 'Ş', 't': 'ţ', 'T': 'Ţ', 'd': 'ḑ', 'D': 'Ḑ',
 	},
+	'\u02dc': { // SMALL TILDE (the spacing tilde accent, not ASCII `~`)
+		'a': 'ã', 'A': 'Ã', 'e': 'ẽ', 'E': 'Ẽ', 'i': 'ĩ', 'I': 'Ĩ',
+		'o': 'õ', 'O': 'Õ', 'u': 'ũ', 'U': 'Ũ', 'n': 'ñ', 'N': 'Ñ',
+		'y': 'ỹ', 'Y': 'Ỹ',
+	},
+	'\u0060': { // GRAVE ACCENT (spacing grave: Portuguese à, French où)
+		'a': 'à', 'A': 'À', 'e': 'è', 'E': 'È', 'i': 'ì', 'I': 'Ì',
+		'o': 'ò', 'O': 'Ò', 'u': 'ù', 'U': 'Ù', 'n': 'ǹ', 'N': 'Ǹ',
+		'w': 'ẁ', 'W': 'Ẁ', 'y': 'ỳ', 'Y': 'Ỳ',
+	},
+	'\u02c6': { // MODIFIER LETTER CIRCUMFLEX ACCENT (Portuguese â ê ô)
+		'a': 'â', 'A': 'Â', 'e': 'ê', 'E': 'Ê', 'i': 'î', 'I': 'Î',
+		'o': 'ô', 'O': 'Ô', 'u': 'û', 'U': 'Û', 'w': 'ŵ', 'W': 'Ŵ',
+		'y': 'ŷ', 'Y': 'Ŷ',
+	},
 }
 
 // foldSpacingAccents composes a spacing diacritic that PDFs place just before its
@@ -465,14 +482,17 @@ var accentCompose = map[rune]map[rune]rune{
 // and "Gröbner". This deviates from upstream indra, which does not normalize the
 // text layer — see docs/DEVIATIONS.md.
 //
-// A diacritic is composed only when it sits between two letters (a letter before,
-// a composable letter after), which is every real accent case here; one after a
-// non-letter (a prime/symbol, e.g. "SplExtp´,") is left as-is. Math operators
-// are not in the table, so they are never touched.
+// A diacritic is composed only when the letter that immediately follows it (no
+// space in between) is one it forms a precomposed character with, and the glyph
+// is not a unit suffix attached to a number (a prime, '5´ = five feet', stays).
+// Otherwise it attaches forward: inside a word ("potˆencia" -> "potência"), at a
+// word start ("`a" -> "à", "´unico" -> "único") or after an apostrophe
+// ("d’´economie" -> "d’économie"). Math operators are not in the table at all,
+// so equations are never touched.
 func foldSpacingAccents(seg []TextChar) []TextChar {
 	out := make([]TextChar, 0, len(seg))
 	for i := 0; i < len(seg); i++ {
-		if i > 0 && i+1 < len(seg) && unicode.IsLetter(seg[i-1].Ch) {
+		if i+1 < len(seg) && !afterNumber(seg, i) {
 			if m := accentCompose[seg[i].Ch]; m != nil {
 				if p, ok := m[seg[i+1].Ch]; ok {
 					nx := seg[i+1]
@@ -486,4 +506,10 @@ func foldSpacingAccents(seg []TextChar) []TextChar {
 		out = append(out, seg[i])
 	}
 	return out
+}
+
+// afterNumber reports whether the diacritic at seg[i] directly follows a number,
+// so it is a unit symbol (a prime) rather than an accent on the next letter.
+func afterNumber(seg []TextChar, i int) bool {
+	return i > 0 && unicode.IsNumber(seg[i-1].Ch)
 }

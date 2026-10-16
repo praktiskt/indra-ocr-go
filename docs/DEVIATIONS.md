@@ -9,27 +9,33 @@ method in [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-
 
 ## Text layer: spacing diacritics are composed
 
-- **What:** in the PDF text layer, a spacing diacritic that sits **between two
-  letters** is folded into the precomposed form of the following letter. Covered:
-  acute `U+00B4` (`Cicho´n` -> `Cichoń`, `Fr´echet` -> `Fréchet`, `Mej´ıa` ->
-  `Mejía`), diaeresis `U+00A8` (`Gr¨obner` -> `Gröbner`), double acute `U+02DD`
-  (`Erd˝os` -> `Erdős`) and cedilla `U+00B8` (`Fran¸cois` -> `François`). A
-  diacritic after a non-letter is left as-is (a prime/symbol, e.g. `SplExtp´,`).
-  Diacritics commonly used as **math operators between letters** (caret `^`,
-  tilde `~`, grave, macron `¯`, circumflex `ˆ`, SMALL TILDE) are **deliberately
-  excluded**, so equations are not touched.
+- **What:** in the PDF text layer, a spacing diacritic is folded into the
+  precomposed form of the letter that immediately follows it (no space between).
+  Covered: acute `U+00B4` (`Cicho´n` -> `Cichoń`, `Fr´echet` -> `Fréchet`,
+  `Mej´ıa` -> `Mejía`), diaeresis `U+00A8` (`Gr¨obner` -> `Gröbner`), double
+  acute `U+02DD` (`Erd˝os` -> `Erdős`), cedilla `U+00B8` (`Fran¸cois` ->
+  `François`), SMALL TILDE `U+02DC` (`dissertaç˜ao` -> `dissertação`), grave
+  `U+0060` (word-initial `à`) and modifier-letter circumflex `U+02C6`
+  (`potˆencia` -> `potência`). The accent may be inside a word, at a word start
+  (after a space or the start of a segment, e.g. Portuguese `à`, `único`, `é`) or
+  right after an apostrophe (`d’´economie` -> `d’économie`). A diacritic directly
+  after a **number** is a unit symbol (a prime, e.g. `5´`) and is left; math
+  operators (`~`, `^`, macron `¯`) are not in the table, so equations are not
+  touched.
 - **Why:** PDFs draw the accent as a separate glyph positioned before its base,
   and pdfium emits characters in content order, so the raw layer reads
-  `Cicho´n` / `Gr¨obner`. Upstream passes that through, but the recognizer does
-  not — its vocab is NFC (`indra_ocr/vocab.py`), so the OCR path already produces
-  `Cichoń` / `Gröbner`. This makes the two paths agree.
+  `Cicho´n` / `Gr¨obner` / `dissertaç˜ao`. Upstream passes that through, but the
+  recognizer does not — its vocab is NFC (`indra_ocr/vocab.py`), so the OCR path
+  already produces `Cichoń` / `Gröbner` / `dissertação`. This makes the two paths
+  agree.
 - **Where:** `pdfium.go` (`foldSpacingAccents`), text-layer extraction only; the
   OCR path and image input are unchanged.
-- **Impact:** Latin accents in PDF text-layer text are normalized; primes and
-  math operators are not. Low volume (~250 of the spacing diacritics in 2149 OPB
-  corpus pages; most occurrences are primes/symbols or math).
-- **Validation:** `TestFoldSpacingAccents` (the containing cases, primes, and the
-  excluded math operators).
+- **Impact:** Latin accents in PDF text-layer text are normalized; numeric-unit
+  primes and math operators are not. Small volume. Checked against all 88
+  `realdoc_pdfs` OPB text layers (0 pages change) and the Portuguese thesis that
+  motivated it (7 pages, all corrected).
+- **Validation:** `TestFoldSpacingAccents` (containing/word-initial/apostrophe
+  cases, primes, and the excluded math operators).
 
 ## `pdf_order` (PDF content order) not ported
 
