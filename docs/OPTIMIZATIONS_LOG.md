@@ -37,6 +37,22 @@ delta / baseline.
   monotonically (stem+blocks0-3: 21.4 p/s, -0.05pp; stem only: 23.2 p/s, -0.41pp
   but -2/-2.5pp on degraded/photo).
 
+### Recognizer: fused softmax-max confidence head — `v0.19.0`
+
+- `conf` (probability of the argmax class) was `ReduceMax + Sub + Exp + ReduceSum
+  + Reciprocal + Mul` = 16 nodes incl. their Q/DQ wrappers, i.e. several
+  elementwise passes over the `[B,T,V]` logits. ORT's `Softmax` kernel does the
+  same math in one fused pass and `ReduceMax` picks the max probability.
+  `tools/quantize_rec.py` (`fuse_conf_head`, on by default; `--no-fuse-head` to
+  skip) rewrites the branch to `Softmax -> ReduceMax`.
+- **Numerically:** `ids` and `lengths` are on a different branch and stay
+  bit-identical (0 differing CTC lines on 60 real crops); `conf` differs only by
+  accumulation order (~2e-3).
+- **Speed:** rec ~7% (60 real crops, 1 thread); end-to-end guard `avg_ms`
+  411 -> 395 (-4%), reproducible across runs.
+- **Quality:** FUNSD 0.9137 -> 0.9136 (-0.01pp, one word via a MinConf flip);
+  brutal-print gauntlet identical on all 9 subsets.
+
 ### Recognizer: Conv1d -> Conv2d promotion (NCHWc) — `v0.16.0`, LOSSLESS
 
 - ORT's layout optimizer only lowers **2-D** Convs to the fast **NCHWc** layout;

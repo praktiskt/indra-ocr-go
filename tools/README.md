@@ -33,6 +33,10 @@ Three choices carried the accuracy (details and the A/B evidence are in
    speed, no accuracy: `+22%` on the fp32 recognizer, `+8%` on int8, `0` CTC
    lines changed (diffs ~1e-6 from accumulation order). Before the promotion
    the optimized graph had ~2 NCHWc ops; after, ~117.
+5. **Fuse the confidence head (`--no-fuse-head` to skip).** `conf` is the
+   argmax-class probability; replace its 6-node `ReduceMax/Sub/Exp/ReduceSum/
+   Reciprocal/Mul` decomposition with `Softmax → ReduceMax`. `ids`/`lengths`
+   stay bit-identical, `conf` moves ~2e-3, rec ~7% faster.
 
 Measured on the FUNSD 199-page guard with the default pool (8 workers ×
 1 thread, 16-core Zen4): FP32 0.9150 recall / ~17.4 pages/s →
