@@ -4,12 +4,14 @@ Regeneration tooling for the shipped models. These are not built into the
 library (`tools/` only holds `calib`, a small `main` package).
 
 - `models/rec.onnx` — recognizer, mixed-precision int8 (`quantize_rec.py`).
+- `models/rec_cjk.onnx` — CJK recognizer, **same mixed-precision int8 recipe as
+  `rec.onnx`** (`quantize_rec.py`, unchanged tooling; see below).
 - `models/order.onnx` — reading order, tab-head-stripped + dynamic int8
   (`quantize_order.py`).
-- `models/det.onnx`, `models/orient.onnx`, `models/script.onnx`, `models/rec_cjk.onnx`
-  and the math models (`mathcls`/`math_enc`/`math_dec_init`/`math_dec_step` +
-  `math_meta.json`) — shipped as upstream FP32 (`script` routes CJK lines to
-  `rec_cjk`; the math models are used with `OCR.Math`).
+- `models/det.onnx`, `models/orient.onnx`, `models/script.onnx` and the math
+  models (`mathcls`/`math_enc`/`math_dec_init`/`math_dec_step` + `math_meta.json`)
+  — shipped as upstream FP32 (`script` routes CJK lines to `rec_cjk`; the math
+  models are used with `OCR.Math`).
 
 The recognizer in `models/rec.onnx` is a mixed-precision int8 build of the
 upstream FP32 `rec.onnx`. Everything here reproduces it.
@@ -68,6 +70,33 @@ INDRA_CORPUS_DIR=/path/to/corpus go test -run TestCorpusRecall -count=1 -v
 `tools/quantize_rec.py --help` documents the arguments. The int8 model keeps the
 FP32 model's input/output names (`x`, `widths` → `ids`, `conf`, `lengths`), so
 nothing in the Go code changes when the file is swapped.
+
+## Regenerate `models/rec_cjk.onnx`
+
+Same recipe and the **same script** as `rec.onnx` — the two graphs share node
+and tensor names, the `x`/`widths` inputs and the 32px rec height, so only the
+calibration data differs (CJK line crops instead of Latin):
+
+```sh
+# FP32 source: upstream huggingface.co/datalab-to/indra-ocr (rec_cjk.onnx),
+# or the pre-int8 file from git history:
+git show <pre-int8-commit>:models/rec_cjk.onnx > /tmp/rec_cjk_fp32.onnx
+
+# Calibration: CJK line crops through the real pipeline. A CJK corpus
+# (img/*.png) works directly; synthetic CJK pages (Noto Sans/Serif CJK,
+# zh+ja, mixed Latin/digits) plus the 10 xfund zh/ja pages were what the
+# shipped build used.
+INDRA_CORPUS_DIR=/path/to/cjk_corpus go run ./tools/calib -out /tmp/cjk_calib
+
+# Quantize (identical flags to rec.onnx; --fp32-blocks 2).
+uv run --with onnx --with onnxruntime --with numpy \
+  tools/quantize_rec.py --model /tmp/rec_cjk_fp32.onnx --calib /tmp/cjk_calib \
+  --out models/rec_cjk.onnx --fp32-blocks 2
+```
+
+Validate on OPB `multilingual` + `multiling_finepdfs` (the `text`/`Hani` family
+is the signal — the FUNSD-style word-recall metric is Latin-only and blind to
+CJK), plus the FUNSD guard for a no-regression tripwire.
 
 ## Regenerate `models/order.onnx`
 

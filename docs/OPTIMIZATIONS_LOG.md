@@ -18,6 +18,32 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### CJK recognizer (`rec_cjk`): mixed-precision int8 — *unreleased (batch)*
+
+- **The rec recipe applies verbatim.** `rec_cjk.onnx` is exported from the same
+  graph as `rec.onnx`: identical node/tensor names (`/rec/stem`, `/rec/blocks.N`,
+  the `conf` branch), identical `x`/`widths` -> `ids`/`conf`/`lengths` signature
+  and rec height (32), 52 `Conv1d`. So `tools/quantize_rec.py` was run unchanged:
+  QDQ, per-channel, asymmetric `QUInt8`, raw graph, stem+blocks 0-1 FP32, the
+  Conv1d->Conv2d NCHWc promotion and the fused confidence head.
+- **Calibration (the one thing that is new).** CJK line crops through the real
+  pipeline: 60 synthetic CJK pages (Noto Sans/Serif CJK, zh+ja, mixed
+  Latin/digits) plus the 10 real `xfund` zh/ja pages ->
+  `INDRA_CORPUS_DIR=<cjk corpus> go run ./tools/calib -out /tmp/cjk_calib`
+  (328 batches / 3658 lines). `tools/calib` is rec-height/`x`/`widths` already,
+  so it needs no change.
+- **Size:** `models/rec_cjk.onnx` 9.26 -> 3.36 MB (-64%, ~-5.9 MB embedded).
+- **Quality** (OPB `multilingual` + `multiling_finepdfs`, 200 pages,
+  `-furniture`): the `text`/`html` family is **byte-identical** (0.22037;
+  `Hani` tag 0.2727 both) and `multilingual` per-suite is identical (0.3696);
+  `multiling_finepdfs` 0.3861 -> 0.3891 (noise). Headline 0.4961 -> 0.5005
+  (all of it `layout`, noise). The clean printed `cmn_Hani` page is
+  character-identical.
+- **Regression tripwires unchanged:** FUNSD guard 0.9137 -> 0.9134 and xfund
+  0.9601 -> 0.9597 (both noise; `rec_cjk` is off the Latin path).
+- Not swept: `--fp32-blocks` (kept at rec's `2`; quality was already neutral, so
+  the sweep is a speed/size tune, not a quality one — the batch is quality-first).
+
 ### Recognizer: mixed-precision int8 — `v0.14.0`
 
 - **Config** (`tools/quantize_rec.py`, byte-reproducible): QDQ, per-channel
