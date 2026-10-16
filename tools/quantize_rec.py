@@ -34,6 +34,7 @@ import os
 import sys
 
 import numpy as np
+import onnx
 from onnxruntime.quantization import (
     CalibrationDataReader,
     CalibrationMethod,
@@ -85,6 +86,115 @@ def fp32_nodes(model_path, fp32_blocks):
     return [n for n in names if any(n.startswith(p) for p in prefixes)]
 
 
+PROMOTE_HELP = """\
+Promote 1-D Convs to 2-D before quantizing. ORT's layout optimizer only turns
+2-D Convs into the fast NCHWc layout; 1-D Convs are left on the slow generic
+path (microsoft/onnxruntime#16047). The recognizer's blocks are all Conv1d, so
+we add a unit spatial axis: kernel [K]->[1,K], pads [p0,p1]->[0,p0,0,p1],
+strides [s]->[1,s], dilations [d]->[1,d], weight [OC,IC,K]->[OC,IC,1,K]. The
+graph is kept 4-D end to end (SE reduce axes -> (2,3), the widths mask is
+unsqueezed to [B,1,1,W], a final Squeeze restores the CTC layout). Numerically
+identical (diffs ~1e-6 from accumulation order; 0 CTC lines change)."""
+
+
+def promote_conv2d(src, dst):
+    """Rewrite a Conv1d recognizer graph so every Conv is NCHWc-eligible."""
+    import numpy as np
+    from onnx import helper as H, numpy_helper as NH
+
+    m = onnx.load(src)
+    g = m.graph
+    init = {i.name: i for i in g.initializer}
+    nodes = list(g.node)
+    const = {n.output[0]: list(NH.to_array(n.attribute[0].t).ravel())
+             for n in nodes if n.op_type == "Constant" and n.attribute}
+
+    def resolve(x):
+        if x in init:
+            return list(NH.to_array(init[x]).ravel())
+        return const.get(x)
+
+    def ints(n, name, default=None):
+        for a in n.attribute:
+            if a.name == name:
+                return list(a.ints)
+        return default
+
+    STEM = "/rec/stem/Conv_output_0"
+    SQ = "/rec/Squeeze_output_0"
+    HEAD = "/rec/head/Conv_output_0"
+    MASK3 = "/rec/Cast_4_output_0"
+
+    for n in nodes:
+        if n.op_type == "BatchNormalization" and n.input[0] == SQ:
+            n.input[0] = STEM
+
+    for n in nodes:
+        if n.op_type != "Conv" or n.name == "/rec/stem/Conv":
+            continue
+        k = ints(n, "kernel_shape", [1])
+        if len(k) != 1:
+            continue
+        pads = ints(n, "pads", [0, 0])
+        strides = ints(n, "strides", [1])
+        dil = ints(n, "dilations", [1])
+        for a in n.attribute:
+            if a.name == "kernel_shape":
+                a.ints[:] = [1] + k
+            elif a.name == "pads":
+                a.ints[:] = [0, pads[0], 0, pads[1]]
+            elif a.name == "strides":
+                a.ints[:] = [1] + strides
+            elif a.name == "dilations":
+                a.ints[:] = [1] + dil
+        wn = n.input[1]
+        if wn in init:
+            w = NH.to_array(init[wn])
+            if w.ndim == 3:
+                init[wn].CopyFrom(NH.from_array(w.reshape(w.shape[0], w.shape[1], 1, w.shape[2]), wn))
+
+    producer = {o: n for n in nodes for o in n.output}
+    for n in nodes:
+        if n.op_type != "ReduceSum":
+            continue
+        p = producer.get(n.input[0])
+        if p is not None and p.name.endswith("/se/Mul") and resolve(n.input[1]) == [2]:
+            nm = "z_se_axes_" + n.name.split("/")[2]
+            init[nm] = NH.from_array(np.array([2, 3], dtype=np.int64), nm)
+            n.input[1] = nm
+
+    for n in nodes:
+        for i, inp in enumerate(n.input):
+            if inp != MASK3:
+                continue
+            if n.op_type == "Mul":
+                n.input[i] = "z_mask4"
+            elif n.op_type == "ReduceSum":
+                n.input[0] = "z_mask4"
+                init["z_mask_count_axes"] = NH.from_array(np.array([2, 3], dtype=np.int64), "z_mask_count_axes")
+                n.input[1] = "z_mask_count_axes"
+    init["z_mask_uaxes"] = NH.from_array(np.array([2], dtype=np.int64), "z_mask_uaxes")
+    mpi = next(i for i, n in enumerate(nodes) if n.output and n.output[0] == MASK3)
+    nodes.insert(mpi + 1, H.make_node("Unsqueeze", [MASK3, "z_mask_uaxes"], ["z_mask4"], name="z_mask_unsq"))
+
+    init["z_head_axes"] = NH.from_array(np.array([2], dtype=np.int64), "z_head_axes")
+    for n in nodes:
+        if n.input and n.input[0] == HEAD and n.op_type not in ("Conv", "Squeeze"):
+            n.input[0] = "z_head3"
+    hi = next(i for i, n in enumerate(nodes) if n.name == "/rec/head/Conv")
+    nodes.insert(hi + 1, H.make_node("Squeeze", [HEAD, "z_head_axes"], ["z_head3"], name="z_head_sq"))
+
+    have = {i.name for i in g.initializer}
+    for k, v in init.items():
+        if k not in have:
+            g.initializer.append(v)
+    del g.node[:]
+    g.node.extend(nodes)
+    onnx.checker.check_model(m)
+    onnx.save(m, dst)
+    return dst
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", required=True, help="FP32 rec.onnx source")
@@ -92,6 +202,7 @@ def main():
     ap.add_argument("--out", required=True, help="output int8 onnx path")
     ap.add_argument("--fp32-blocks", type=int, default=2,
                     help="leading inverted-residual blocks kept FP32 (default 2; 0 = quantize all)")
+    ap.add_argument("--no-promote", action="store_true", help="skip the Conv1d->Conv2d NCHWc promotion")
     args = ap.parse_args()
 
     samples = load_calib(args.calib)
@@ -102,9 +213,15 @@ def main():
     print(f"calibration: {len(samples)} batches / {lines} lines")
     print(f"FP32 nodes ({len(excl)}): stem + blocks 0..{args.fp32_blocks - 1}")
 
+    src = args.model
+    if not args.no_promote:
+        src = args.out + ".promoted.onnx"
+        promote_conv2d(args.model, src)
+        print(f"promoted Conv1d->Conv2d -> {src}")
+
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     quantize_static(
-        args.model,
+        src,
         args.out,
         SampleReader(samples),
         quant_format=QuantFormat.QDQ,

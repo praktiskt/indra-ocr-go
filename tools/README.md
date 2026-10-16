@@ -21,10 +21,17 @@ Three choices carried the accuracy (details and the A/B evidence are in
    the first two inverted-residual blocks float recovers most of the loss.
    `--fp32-blocks 0` quantizes everything (faster, less accurate); larger
    values trade speed back for accuracy.
+4. **Promote Conv1d → Conv2d (`--no-promote` to skip).** ORT's layout optimizer
+   only lowers 2-D Convs to the fast NCHWc layout; 1-D Convs stay on the slow
+   generic path (microsoft/onnxruntime#16047). The recognizer's blocks are all
+   `Conv1d`, so this adds a unit spatial axis and keeps the graph 4-D. Pure
+   speed, no accuracy: `+22%` on the fp32 recognizer, `+8%` on int8, `0` CTC
+   lines changed (diffs ~1e-6 from accumulation order). Before the promotion
+   the optimized graph had ~2 NCHWc ops; after, ~117.
 
 Measured on the FUNSD 199-page guard with the default pool (8 workers ×
-1 thread, 16-core Zen4): FP32 0.9150 recall / 17.8 pages/s →
-this build 0.9134 recall / 22.3 pages/s (+25% pages/s, −13% peak RSS).
+1 thread, 16-core Zen4): FP32 0.9150 recall / ~17.4 pages/s →
+this build 0.9136 recall / ~22 pages/s (+~27% pages/s, −13% peak RSS).
 
 ## Regenerate `models/rec.onnx`
 

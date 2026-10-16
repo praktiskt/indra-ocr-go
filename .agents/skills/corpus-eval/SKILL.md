@@ -174,6 +174,22 @@ Failure classes mapped (eyeballed dumps):
   stem/blocks0-1 are what buy the last ~0.2pp. Untried lever, if ever needed:
   quantized-input reconstruction (minimize ||conv(W_hat, Xq) - conv(W, X)||^2
   with the model's own activation quantiser), which can see activation error.
+- Conv1d->Conv2d promotion (NCHWc): accepted, LOSSLESS. ORT's layout optimizer
+  only lowers 2-D Convs to the fast NCHWc layout; 1-D Convs are left on the slow
+  generic path (microsoft/onnxruntime#16047 - maintainer: "just promote it to
+  Conv2d"). The whole rec backbone is Conv1d, so `tools/quantize_rec.py`
+  (`promote_conv2d`, on by default; `--no-promote` to skip) adds a unit spatial
+  axis and keeps the graph 4-D (SE reduce axes -> (2,3), widths mask -> [B,1,1,W],
+  final Squeeze for CTC). Optimized graph goes from ~2 to ~117 NCHWc ops.
+  Numerically identical: 0 CTC lines differ, corpus 0.9134->0.9136, gauntlet
+  identical +-0.02pp. Rec-only speedup: fp32 1.22x, int8 1.08x (int8's fused
+  conv path only partly NCHWc). End-to-end pool 8x1t: fp32 17.4->18.3 p/s, int8
+  21.7->22.2 (~+2.5%). Bonus: NCHWc makes fp32 convs SCALE with threads (fp32
+  rec t1 18548ms -> t2 11788 -> t4 8362), so at 4-8 threads fp32+NCHWc ~= int8
+  Conv1d, i.e. lossless catches the lossy path at higher thread counts. det and
+  orient are already 2-D and get NCHWc; order is MatMul. 1x1 Conv BEATS MatMul
+  on this CPU (0.87 vs 0.93 ms/15 layers), so don't rewrite pointwise convs as
+  MatMul.
 - Pipeline overlap: accepted. `OCR.CallAll`/`Pool.CallAll` run per-page stages
   (orient+det / rec / assemble) as a 3-stage goroutine pipeline, one page per
   stage, sessions partitioned by stage. Output bit-identical to per-page `Call`
