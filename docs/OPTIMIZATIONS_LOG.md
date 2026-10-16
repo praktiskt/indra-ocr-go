@@ -53,6 +53,33 @@ delta / baseline.
 - **Quality:** FUNSD 0.9137 -> 0.9136 (-0.01pp, one word via a MinConf flip);
   brutal-print gauntlet identical on all 9 subsets.
 
+### ORT session config: CPU memory arena OFF (restored) — `v0.20.0`
+
+- `newOptions` now sets `SetCpuMemArena(false)`, matching upstream
+  `indra_ocr` (`pipeline.py`: *"No CPU memory arena ... it kept growing ...
+  bought no measurable speed"*).
+- **It had silently regressed:** `daf601e` set it `false`, then `6ac5c04`
+  (the rec 512px batches) flipped it back to `true` **without saying so**, while
+  leaving the "Arena off" comment. The arena choice was never in this log.
+- **Measured** (FUNSD corpus, 8 workers x 1 thread, deployment config, no result
+  retention): arena ON 22.95 pages/s / 2.88 GB peak RSS (3.32 GB at 10 reps);
+  OFF 22.12 / 1.96 GB (2.17 GB at 10 reps). ON is ~3-4% faster but RSS rises
+  ~245 -> ~360 MB per handle; `PerHandleBytes` is calibrated for arena off.
+- Verdict: keep OFF (upstream parity + memory budget + this project's stated
+  memory priority); the ~3% is the price, now documented instead of accidental.
+
+### Pool sizing re-validated (arena context)
+
+- Grid (arena OFF, FUNSD, 597 pages, pages/s): 4w x 1t 18.8, **8w x 1t 23.0**,
+  16w x 1t 23.3, 8w x 2t 18.9, 4w x 2t 17.6, 16w x 2t 17.8. Confirms
+  `AutoWorkers = NumCPU/2` x 1 thread: the knee, and intra-op threads lose.
+- Single-page latency does **not** scale with intra-op threads (139/118/115/127 ms
+  at 1/2/4/8 threads), so upstream's "few pages -> all cores on each page"
+  fast-path is not worth porting; the pool already spreads pages.
+- **Per-stage split** (199 pages, threads=2, serial): det 35%, rec 35%,
+  upright 28% (of which skew 80% / orientation 20%), assemble 2%. det and skew
+  are as expensive as rec — do not assume rec is the whole story.
+
 ### Recognizer: Conv1d -> Conv2d promotion (NCHWc) — `v0.16.0`, LOSSLESS
 
 - ORT's layout optimizer only lowers **2-D** Convs to the fast **NCHWc** layout;
@@ -295,6 +322,28 @@ is hard-capped at ~20-25 p/s OCR-only / ~19 p/s end-to-end (`Pool.CallFiles`).
   many-core hardware) and validate scaling on the target hardware, not this box.
 
 ---
+
+## Go vs upstream: per-stage parity (threads=1)
+
+Same corpus, Go `NewOCR(1)` serial vs original `indra_ocr.OrtOCR(threads=1)`
+with `cv2.setNumThreads(1)`:
+
+| stage | Go | upstream |
+|---|---|---|
+| orientation | 10.2 ms | 11.3 ms |
+| skew | 28.4 ms | 24.1 ms |
+| det | 63.0 ms | 66.3 ms |
+| rec | 53.4 ms (int8) | 134.0 ms (fp32) |
+| **per-page core** | **149 ms** | **270 ms** |
+
+- No Go stage is meaningfully slower than upstream at the deployment thread
+  count; rec is 2.5x faster (shipped int8 vs upstream fp32). The end-to-end
+  1.26x (vs ~1.8x core-only) is upstream spending the difference on rendering,
+  the text layer and layout, not on OCR.
+- Compare at **threads=1**: at threads>=2 upstream's `cv2.warpAffine`
+  parallelizes the skew search while the Go estimator is single-threaded on
+  purpose (parallel angle eval was tried and rejected, -2.4%). Threads=2 makes
+  Go skew look ~2x slower; at deployment it is ~1.2x.
 
 ## Reference numbers (dev box)
 

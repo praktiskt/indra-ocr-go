@@ -67,6 +67,11 @@ document corpus + the gauntlet.
 
 - **ORT sessions are not safe for concurrent `Run`.** Every parallel path must
   give each concurrent `Run` its own session set.
+- **Keep `SessionOptions` in sync with upstream `indra_ocr/pipeline.py`**
+  (CPU memory arena, inter-op threads, graph-opt level, per-model threads).
+  Runtime *config* drifts silently and moves RSS/throughput without touching a
+  model or a test — that is how the arena got re-enabled. Changed a setting?
+  A/B it and log it, like any other perf change.
 - **Never commit throwaway harnesses.** A/B and divergence probes are
   `*_test.go` scratch files kept out of the tree (put scratch data in `/tmp`).
   `git diff` before committing must show only the intended change — no hidden
