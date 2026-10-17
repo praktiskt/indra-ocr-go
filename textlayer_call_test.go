@@ -89,7 +89,7 @@ func TestCallTextWithLayer(t *testing.T) {
 	// shape of a PDF layer: one run per line). CallText must reproduce OCR.
 	g2, _, _ := ocr.Upright(g)
 	boxes := ocr.Detect(g2)
-	recs := ocr.Recognize(g2, boxes)
+	recs := ocr.recognize(g2, boxes)
 	var runs []TextRun
 	for i, b := range boxes {
 		if strings.TrimSpace(recs[i].text) != "" {
@@ -139,7 +139,7 @@ func inkGray(box [4]float64) *Gray {
 // layer; "auto" trusts it, or rescues it when the recognizer cannot read the
 // script (but never a broken font map).
 func TestUseTextLayer(t *testing.T) {
-	ocr := &OCR{M: &Meta{Vocab: NewVocab(strings.Split("abcdefghijklmnopqrstuvwxyz", ""))}}
+	ocr := &OCR{m: &meta{vocab: newVocab(strings.Split("abcdefghijklmnopqrstuvwxyz", ""))}}
 	box := [4]float64{10, 10, 40, 20}
 	g := inkGray(box)
 	latin := []TextRun{{Text: "hello", Box: box}}

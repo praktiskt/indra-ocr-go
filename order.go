@@ -9,8 +9,8 @@ import (
 	"unicode/utf8"
 )
 
-// BlockClasses are the layout head classes per line.
-var BlockClasses = []string{
+// blockClasses are the layout head classes per line.
+var blockClasses = []string{
 	"Text", "Section-Header", "Page-Header", "Page-Footer", "List-Group",
 	"Table", "Caption", "Footnote", "Table-Of-Contents", "Form",
 }
@@ -19,10 +19,10 @@ var BlockClasses = []string{
 var gridLabel = map[string]bool{"Table": true, "Form": true, "Table-Of-Contents": true}
 
 func blockIsGrid(id int) bool {
-	if id < 0 || id >= len(BlockClasses) {
+	if id < 0 || id >= len(blockClasses) {
 		return false
 	}
-	return gridLabel[BlockClasses[id]]
+	return gridLabel[blockClasses[id]]
 }
 
 const (
@@ -31,8 +31,8 @@ const (
 	NFeats = nGeom + nText
 )
 
-// LineFeatures builds [N x NFeats] float32 features. Port of line_features.
-func LineFeatures(boxes [][4]float64, pageW, pageH float64, texts []string) []float32 {
+// lineFeatures builds [N x NFeats] float32 features. Port of line_features.
+func lineFeatures(boxes [][4]float64, pageW, pageH float64, texts []string) []float32 {
 	n := len(boxes)
 	out := make([]float32, n*NFeats)
 	if n == 0 {
@@ -142,8 +142,8 @@ func isAllDigits(s string) bool {
 
 func endsWithHyphen(t string) bool { return len(t) > 0 && t[len(t)-1] == '-' }
 
-// DecodeOrder orders from a pairwise logit matrix [N x N]. Port of decode_order.
-func DecodeOrder(a [][]float64, sweeps int) []int {
+// decodeOrder orders from a pairwise logit matrix [N x N]. Port of decode_order.
+func decodeOrder(a [][]float64, sweeps int) []int {
 	n := len(a)
 	if n <= 1 {
 		o := make([]int, n)
@@ -246,8 +246,8 @@ func softplus(x float64) float64 {
 	return math.Log1p(math.Exp(x))
 }
 
-// OrderTopDown sorts rows top-to-bottom, left-to-right.
-func OrderTopDown(boxes [][4]float64) []int {
+// orderTopDown sorts rows top-to-bottom, left-to-right.
+func orderTopDown(boxes [][4]float64) []int {
 	n := len(boxes)
 	idx := make([]int, n)
 	for i := range idx {
@@ -297,8 +297,8 @@ func pyRound(x float64) int {
 	}
 }
 
-// OrderXYCut is the recursive XY-cut baseline.
-func OrderXYCut(boxes [][4]float64) []int {
+// orderXYCut is the recursive XY-cut baseline.
+func orderXYCut(boxes [][4]float64) []int {
 	ids := make([]int, len(boxes))
 	for i := range ids {
 		ids[i] = i
@@ -351,7 +351,7 @@ func xyRec(boxes [][4]float64, ids []int) []int {
 		for i, id := range ids {
 			sub[i] = boxes[id]
 		}
-		local := OrderTopDown(sub)
+		local := orderTopDown(sub)
 		out := make([]int, len(ids))
 		for i, l := range local {
 			out[i] = ids[l]
@@ -472,8 +472,8 @@ func cluster(logits [][]float64) [][]int {
 	return out
 }
 
-// DecodeBlocksOrder orders with layout heads. Port of decode_blocks_order.
-func DecodeBlocksOrder(a, same [][]float64, boxes [][4]float64, cls [][]float64) []int {
+// decodeBlocksOrder orders with layout heads. Port of decode_blocks_order.
+func decodeBlocksOrder(a, same [][]float64, boxes [][4]float64, cls [][]float64) []int {
 	n := len(a)
 	if n <= 1 {
 		o := make([]int, n)
@@ -491,9 +491,9 @@ func DecodeBlocksOrder(a, same [][]float64, boxes [][4]float64, cls [][]float64)
 		}
 		var local []int
 		if cls != nil && blockIsGrid(argmaxRowSum(cls, b)) {
-			local = OrderTopDown(bx)
+			local = orderTopDown(bx)
 		} else {
-			local = OrderXYCut(bx)
+			local = orderXYCut(bx)
 		}
 		inner[bi] = make([]int, len(b))
 		for i, l := range local {
@@ -520,7 +520,7 @@ func DecodeBlocksOrder(a, same [][]float64, boxes [][4]float64, cls [][]float64)
 			ab[p][q] = s / float64(len(blocks[p])*len(blocks[q]))
 		}
 	}
-	border := DecodeOrder(ab, 4)
+	border := decodeOrder(ab, 4)
 	var out []int
 	for _, k := range border {
 		out = append(out, inner[k]...)
@@ -548,8 +548,8 @@ func argmaxRowSum(cls [][]float64, rows []int) int {
 	return b
 }
 
-// SplitBlocks cuts the reading order where same-block logit <= 0.
-func SplitBlocks(order []int, same [][]float64) [][]int {
+// splitBlocks cuts the reading order where same-block logit <= 0.
+func splitBlocks(order []int, same [][]float64) [][]int {
 	var blocks [][]int
 	for _, i := range order {
 		if len(blocks) > 0 && same[blocks[len(blocks)-1][len(blocks[len(blocks)-1])-1]][i] > 0 {

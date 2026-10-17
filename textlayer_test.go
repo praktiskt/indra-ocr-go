@@ -24,8 +24,8 @@ func TestJoinLinesCJK(t *testing.T) {
 		{[]string{"first line", "second"}, "first line second"},
 	}
 	for _, c := range cases {
-		if got := JoinLines(c.in); got != c.want {
-			t.Errorf("JoinLines(%q) = %q, want %q", c.in, got, c.want)
+		if got := joinLines(c.in); got != c.want {
+			t.Errorf("joinLines(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
@@ -53,7 +53,7 @@ func TestOrderXYCutTwoColumnsReadingOrder(t *testing.T) {
 			[4]float64{310, float64(100 + 15*i), 550, float64(110 + 15*i)},
 		)
 	}
-	o := OrderXYCut(boxes)
+	o := orderXYCut(boxes)
 	if len(o) != 40 {
 		t.Fatalf("want 40, got %d", len(o))
 	}
@@ -76,7 +76,7 @@ func TestOrderTopDownBottomUpNotCoherent(t *testing.T) {
 		y := 400 - 15*i
 		boxes = append(boxes, [4]float64{50, float64(y), 500, float64(y + 10)})
 	}
-	o := OrderTopDown(boxes)
+	o := orderTopDown(boxes)
 	if len(o) != 20 {
 		t.Fatalf("want 20, got %d", len(o))
 	}
@@ -97,16 +97,16 @@ func TestEstimateSkewRecoversTilt(t *testing.T) {
 			x += w + 10 + rng.Intn(15)
 		}
 	}
-	if got := EstimateSkew(g); math.Abs(got) > 0.15 {
+	if got := estimateSkew(g); math.Abs(got) > 0.15 {
 		t.Fatalf("untilted skew = %v, want |<0.15|", got)
 	}
 	for _, tilt := range []float64{2.0, -1.3, 0.6} {
-		est := EstimateSkew(RotatePage(g, tilt))
+		est := estimateSkew(rotatePage(g, tilt))
 		if math.Abs(est+tilt) > 0.15 {
 			t.Errorf("tilt %v: estimate %v, want |est+tilt|<=0.15", tilt, est)
 		}
 	}
-	if got := EstimateSkew(newPage(800, 600)); got != 0 {
+	if got := estimateSkew(newPage(800, 600)); got != 0 {
 		t.Errorf("blank page skew = %v, want 0", got)
 	}
 }
@@ -114,7 +114,7 @@ func TestEstimateSkewRecoversTilt(t *testing.T) {
 func TestUnrotateBoxMapsDeskewedBoxBack(t *testing.T) {
 	g := newPage(400, 600)
 	fillRect(g, 100, 180, 400, 40, 0) // long dark bar
-	tilted := RotatePage(g, -3.0)
+	tilted := rotatePage(g, -3.0)
 	var xs, ys []int
 	for y := 0; y < tilted.H; y++ {
 		for x := 0; x < tilted.W; x++ {
@@ -134,14 +134,14 @@ func TestUnrotateBoxMapsDeskewedBoxBack(t *testing.T) {
 	for _, v := range ys {
 		mnY, mxY = min(mnY, v), max(mxY, v)
 	}
-	got := UnrotateBox([4]float64{100, 180, 500, 220}, 3.0, 600, 400)
+	got := unrotateBox([4]float64{100, 180, 500, 220}, 3.0, 600, 400)
 	if got[0] > float64(mnX)+2 || got[2] < float64(mxX)-2 {
 		t.Errorf("x coverage: got %v, dark range [%d,%d]", got, mnX, mxX)
 	}
 	if got[1] > float64(mnY)+2 || got[3] < float64(mxY)-2 {
 		t.Errorf("y coverage: got %v, dark range [%d,%d]", got, mnY, mxY)
 	}
-	if id := UnrotateBox([4]float64{10, 10, 20, 20}, 0.0, 600, 400); id != [4]float64{10, 10, 20, 20} {
+	if id := unrotateBox([4]float64{10, 10, 20, 20}, 0.0, 600, 400); id != [4]float64{10, 10, 20, 20} {
 		t.Errorf("zero-degree unrotate = %v", id)
 	}
 }

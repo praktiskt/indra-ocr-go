@@ -45,13 +45,13 @@ func sharpRowsDark(src []uint8, w, h int, cos, sin, cx, cy float64, stride int) 
 	return tot
 }
 
-// EstimateSkewPy is the blend of pipeline.py's estimator (800px thumbnail,
+// estimateSkewPy is the blend of pipeline.py's estimator (800px thumbnail,
 // 0.5 then 0.1 degree searches, black border) fused into a single bilinear
 // pass with no rotated-image allocation, parallelized over the angle grid.
-func EstimateSkewPy(g *Gray) float64 {
+func estimateSkewPy(g *Gray) float64 {
 	const side = 800
 	s := float64(side) / float64(max(g.W, g.H))
-	sm := g.ResizeArea(max(1, int(math.Round(float64(g.W)*s))), max(1, int(math.Round(float64(g.H)*s))))
+	sm := g.resizeArea(max(1, int(math.Round(float64(g.W)*s))), max(1, int(math.Round(float64(g.H)*s))))
 	sum := 0.0
 	for _, p := range sm.Pix {
 		sum += float64(255 - p)

@@ -538,8 +538,8 @@ Done while hunting for further surgery (do not redo):
 ## Corrections / stale notes
 
 - **Skew estimator**: an older note said "600px + 3-level search". The shipped
-  estimator is `EstimateSkewPy` (800px thumbnail, 0.5deg coarse then 0.1deg fine,
-  black border). The 600px `EstimateSkew` exists but is unused.
+  estimator is `estimateSkewPy` (800px thumbnail, 0.5deg coarse then 0.1deg fine,
+  black border). The 600px `estimateSkew` exists but is unused.
 - **`quant_pre_process`**: do NOT run it before quantizing rec — it decomposes
   HardSwish and quantizes more tensors, hurting both accuracy and speed.
 

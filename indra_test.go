@@ -6,7 +6,7 @@ import (
 )
 
 func TestVocabDecodeBasic(t *testing.T) {
-	v := NewVocab([]string{" ", "H", "i", "\\alpha", "x"})
+	v := newVocab([]string{" ", "H", "i", "\\alpha", "x"})
 	if got := v.Decode([]int{2, 3}); got != "Hi" {
 		t.Fatalf("decode = %q", got)
 	}
@@ -27,7 +27,7 @@ func TestDecodeDetSingleBlob(t *testing.T) {
 			out[2*h*w+y*w+x] = 3 // bottom dist
 		}
 	}
-	boxes := DecodeDet(out, h, w)
+	boxes := decodeDet(out, h, w)
 	if len(boxes) != 1 {
 		t.Fatalf("want 1 box, got %d", len(boxes))
 	}
@@ -42,14 +42,14 @@ func TestDecodeDetSingleBlob(t *testing.T) {
 }
 
 func TestDecodeDetEmpty(t *testing.T) {
-	if boxes := DecodeDet(make([]float32, 3*4*4), 4, 4); len(boxes) != 0 {
+	if boxes := decodeDet(make([]float32, 3*4*4), 4, 4); len(boxes) != 0 {
 		t.Fatalf("want 0 boxes, got %d", len(boxes))
 	}
 }
 
 func TestLineFeaturesShape(t *testing.T) {
 	boxes := [][4]float64{{0, 0, 100, 10}, {0, 20, 100, 30}}
-	f := LineFeatures(boxes, 200, 100, []string{"Hello.", "item 1"})
+	f := lineFeatures(boxes, 200, 100, []string{"Hello.", "item 1"})
 	if len(f) != 2*NFeats {
 		t.Fatalf("want %d feats, got %d", 2*NFeats, len(f))
 	}
@@ -57,7 +57,7 @@ func TestLineFeaturesShape(t *testing.T) {
 
 func TestDecodeOrderTrivial(t *testing.T) {
 	a := [][]float64{{0, 5}, {-5, 0}} // 0 before 1
-	if o := DecodeOrder(a, 4); len(o) != 2 || o[0] != 0 || o[1] != 1 {
+	if o := decodeOrder(a, 4); len(o) != 2 || o[0] != 0 || o[1] != 1 {
 		t.Fatalf("order = %v", o)
 	}
 }
@@ -67,7 +67,7 @@ func TestOrderXYCutColumns(t *testing.T) {
 		{0, 0, 40, 10}, {0, 20, 40, 30}, // left column
 		{60, 0, 100, 10}, {60, 20, 100, 30}, // right column
 	}
-	o := OrderXYCut(boxes)
+	o := orderXYCut(boxes)
 	// left column first (x gap dominates or row order keeps columns together)
 	if len(o) != 4 || o[0] != 0 || o[1] != 1 {
 		t.Fatalf("xycut = %v", o)
@@ -75,10 +75,10 @@ func TestOrderXYCutColumns(t *testing.T) {
 }
 
 func TestJoinLines(t *testing.T) {
-	if got := JoinLines([]string{"tumori-", "genesis"}); got != "tumorigenesis" {
+	if got := joinLines([]string{"tumori-", "genesis"}); got != "tumorigenesis" {
 		t.Fatalf("hyphen join = %q", got)
 	}
-	if got := JoinLines([]string{"hello", "world"}); got != "hello world" {
+	if got := joinLines([]string{"hello", "world"}); got != "hello world" {
 		t.Fatalf("join = %q", got)
 	}
 }
@@ -90,7 +90,7 @@ func TestTableHTML(t *testing.T) {
 		{0, 20, 50, 30},
 		{60, 20, 110, 30},
 	}
-	md := TableHTML(boxes, []string{"a", "b", "c", "d"})
+	md := tableHTML(boxes, []string{"a", "b", "c", "d"})
 	for _, want := range []string{"<table>", "<th>a</th>", "<td>c</td>", "</table>"} {
 		if !contains(md, want) {
 			t.Fatalf("table missing %q in:\n%s", want, md)
@@ -103,7 +103,7 @@ func TestPageToInputMultiple(t *testing.T) {
 	for i := range g.Pix {
 		g.Pix[i] = 200
 	}
-	ink, pw, ph, scale := PageToInput(g, 1024)
+	ink, pw, ph, scale := pageToInput(g, 1024)
 	if pw%32 != 0 || ph%32 != 0 {
 		t.Fatalf("not multiple of 32: %dx%d", pw, ph)
 	}

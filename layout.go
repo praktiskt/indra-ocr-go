@@ -23,9 +23,9 @@ type Block struct {
 	Text  string
 }
 
-// JoinLines joins paragraph lines; 'tumori-'+'genesis' -> 'tumorigenesis';
+// joinLines joins paragraph lines; 'tumori-'+'genesis' -> 'tumorigenesis';
 // CJK-CJK break takes no space. Port of join_lines.
-func JoinLines(texts []string) string {
+func joinLines(texts []string) string {
 	var out string
 	for _, t := range texts {
 		t = strings.TrimSpace(t)
@@ -68,10 +68,10 @@ func isCJK(r rune) bool {
 		(o >= 0x20000 && o <= 0x2FA1F)
 }
 
-// PageBlocks builds the layout blocks behind PageMarkdown.
-func PageBlocks(boxes [][4]float64, texts []string, order []int, cls [][]float64, same [][]float64) []Block {
+// pageBlocks builds the layout blocks behind pageMarkdown.
+func pageBlocks(boxes [][4]float64, texts []string, order []int, cls [][]float64, same [][]float64) []Block {
 	var out []Block
-	for _, blk := range SplitBlocks(order, same) {
+	for _, blk := range splitBlocks(order, same) {
 		x0, y0 := math.Inf(1), math.Inf(1)
 		x1, y1 := math.Inf(-1), math.Inf(-1)
 		var ts []string
@@ -84,8 +84,8 @@ func PageBlocks(boxes [][4]float64, texts []string, order []int, cls [][]float64
 			ts = append(ts, texts[i])
 		}
 		label := "Text"
-		if id := argmaxRowSum(cls, blk); id >= 0 && id < len(BlockClasses) {
-			label = BlockClasses[id]
+		if id := argmaxRowSum(cls, blk); id >= 0 && id < len(blockClasses) {
+			label = blockClasses[id]
 		}
 		out = append(out, Block{
 			Label: label,
@@ -96,11 +96,11 @@ func PageBlocks(boxes [][4]float64, texts []string, order []int, cls [][]float64
 	return out
 }
 
-// PageMarkdown renders one page. cells maps a line to its table cells when a
+// pageMarkdown renders one page. cells maps a line to its table cells when a
 // line holds several; tab holds same-row/col/cell logits when available.
-func PageMarkdown(boxes [][4]float64, texts []string, order []int, cls [][]float64, same [][]float64, keepFurniture bool, cells map[int][][2]string, cellBoxes map[int][][4]float64) string {
+func pageMarkdown(boxes [][4]float64, texts []string, order []int, cls [][]float64, same [][]float64, keepFurniture bool, cells map[int][][2]string, cellBoxes map[int][][4]float64) string {
 	var parts []string
-	for _, blk := range SplitBlocks(order, same) {
+	for _, blk := range splitBlocks(order, same) {
 		id := argmaxRowSum(cls, blk)
 		if (id == clsHeader || id == clsFooter) && !keepFurniture {
 			continue
@@ -111,7 +111,7 @@ func PageMarkdown(boxes [][4]float64, texts []string, order []int, cls [][]float
 		}
 		switch {
 		case id == clsSection:
-			parts = append(parts, "## "+JoinLines(tb))
+			parts = append(parts, "## "+joinLines(tb))
 		case id == clsTable && len(blk) > 1:
 			var cb [][4]float64
 			var ct []string
@@ -134,7 +134,7 @@ func PageMarkdown(boxes [][4]float64, texts []string, order []int, cls [][]float
 				cb = append(cb, boxes[i])
 				ct = append(ct, texts[i])
 			}
-			parts = append(parts, TableHTML(cb, ct))
+			parts = append(parts, tableHTML(cb, ct))
 		case id == clsList:
 			var items [][]string
 			for _, t := range tb {
@@ -146,11 +146,11 @@ func PageMarkdown(boxes [][4]float64, texts []string, order []int, cls [][]float
 			}
 			var lines []string
 			for _, it := range items {
-				lines = append(lines, JoinLines(it))
+				lines = append(lines, joinLines(it))
 			}
 			parts = append(parts, strings.Join(lines, "\n"))
 		default:
-			parts = append(parts, JoinLines(tb))
+			parts = append(parts, joinLines(tb))
 		}
 	}
 	var kept []string
@@ -199,8 +199,8 @@ func endsToken(s string, i int) bool {
 	return i >= len(s) || s[i] == ' ' || s[i] == '\t'
 }
 
-// TableHTML builds an HTML table from cell lines. Port of table_html.
-func TableHTML(boxes [][4]float64, texts []string) string {
+// tableHTML builds an HTML table from cell lines. Port of table_html.
+func tableHTML(boxes [][4]float64, texts []string) string {
 	if len(boxes) == 0 {
 		return ""
 	}
@@ -221,7 +221,7 @@ func TableHTML(boxes [][4]float64, texts []string) string {
 		for i, k := range keep {
 			nb[i], nt[i] = boxes[k], texts[k]
 		}
-		return texts[rows[0][0]] + "\n\n" + TableHTML(nb, nt)
+		return texts[rows[0][0]] + "\n\n" + tableHTML(nb, nt)
 	}
 	width := maxRowLen(rows)
 	full := [][]int{}

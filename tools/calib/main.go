@@ -103,15 +103,15 @@ func main() {
 		widths := make([]int, len(boxes))
 		for i, b := range boxes {
 			fb := [4]float64{float64(b[0]), float64(b[1]), float64(b[2]), float64(b[3])}
-			crops[i] = indra.CropLine(g2, fb, ocr.M.RecHeight)
-			widths[i] = len(crops[i]) / ocr.M.RecHeight
+			crops[i] = indra.CropLine(g2, fb, ocr.RecHeight())
+			widths[i] = len(crops[i]) / ocr.RecHeight()
 		}
 		for _, part := range indra.WidthBatches(widths, *batch) {
 			lines := make([][]float32, len(part))
 			hs := make([]int, len(part))
 			ws := make([]int, len(part))
 			for k, j := range part {
-				lines[k], hs[k], ws[k] = crops[j], ocr.M.RecHeight, widths[j]
+				lines[k], hs[k], ws[k] = crops[j], ocr.RecHeight(), widths[j]
 			}
 			batched, wOut, _ := indra.PadBatch(lines, hs, ws)
 			writeF32(fmt.Sprintf("%s/x_%04d.raw", *out, idx), batched)

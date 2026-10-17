@@ -142,42 +142,43 @@ headline and -1.14pp on `olmo_multi_column`, so it is rejected (see
 
 ## API
 
-| Function | Description |
-|----------|-------------|
-| `InitLib()` | Initialize ONNX Runtime library |
-| `NewOCR(threads)` | Create OCR pipeline |
-| `(*OCR).CallAll(pages)` | Batch OCR on one handle, stages pipelined across pages |
-| `(*OCR).CallText(page, layer)` | OCR using a caller-supplied PDF text layer (`mode="auto"`) |
-| `(*OCR).Furniture` | Keep page headers/footers in the markdown |
-| `(*OCR).Math` | Read math lines as LaTeX (upstream `math=True`; embeds ~20 MB) |
-| `(*Page).Text()` | Reading-order line texts joined by newlines |
-| `(*OCR).CallPDF(data, opts)` | Convert PDF bytes: render + text layer (`mode="auto"`) |
-| `PDFOptions` | PDF render: `DPI` / `Mode` ("auto"/"ocr"/"text") / `MaxPages` |
-| `NewPool(workers, threads)` | Create concurrent pool (explicit sizing) |
-| `NewPoolAuto()` | Pool sized for the host (AutoWorkers, 1 thread each) |
-| `NewPoolBuilder()` | Chainable builder: Workers/Threads/ThreadsPerModel/MemBudget/Furniture/Math |
-| `AutoWorkers()` | Default worker count (NumCPU/2) |
-| `PerHandleBytes` | Estimated resident memory per worker (budget unit) |
-| `(*Pool).CallAll(pages)` | Batch OCR across pool workers, pipelined within each |
-| `(*Pool).CallText(page, layer)` | OCR with a caller-supplied text layer, over the pool |
-| `(*Pool).CallPDF(data, opts)` | Convert PDF bytes over the pool |
-| `(*Pool).CallFiles(paths)` | Read+decode files in parallel, OCR over the pool (paths -> pages) |
-| `VocabFromJSON(s)` | Parse vocabulary JSON |
-| `NewVocab(chars)` | Create vocabulary |
-| `DecodeDet(out, h, w)` | Decode detector output |
-| `LineFeatures(boxes, w, h, texts)` | Extract line features |
-| `DecodeOrder(a, sweeps)` | Decode ordering matrix |
-| `OrderXYCut(boxes)` | XY-cut ordering |
-| `PageBlocks(...)` | Extract layout blocks |
-| `PageMarkdown(...)` | Generate markdown |
-| `TableHTML(boxes, texts)` | Generate table HTML |
-| `NewGray(px, w, h)` | Create grayscale image |
-| `FromImage(img)` | Convert any image.Image to grayscale |
-| `FromRGBA(img)` | Convert *image.RGBA to grayscale |
-| `PageToInput(g, longSide)` | Prepare detector input |
-| `CropLine(g, box, height)` | Crop line for recognizer |
-| `RotatePage(g, degrees)` | Rotate page |
-| `EstimateSkew(g)` | Estimate skew angle |
+The pipeline is `NewOCR` (one handle) or `NewPool*` (concurrent). Both expose
+`Call` (image), `CallAll` (batch), `CallText` (caller-supplied PDF text layer)
+and `CallPDF` (PDF bytes). `Page` holds `Lines` (reading order), `Blocks`,
+`Markdown` and `Source`.
+
+```go
+ocr, _ := indra.NewOCR(4)       // single handle, 4 intra-op threads
+defer ocr.Close()
+page := ocr.Call(indra.FromImage(img))
+
+pool, _ := indra.NewPoolAuto()  // NumCPU/2 workers x 1 thread
+defer pool.Close()
+pages := pool.CallFiles(paths)  // read+decode in parallel, OCR over the pool
+```
+
+Options are fields on the handle or methods on the builder:
+
+```go
+ocr.Furniture = true            // keep page headers/footers
+ocr.Math = true                 // read math lines as LaTeX (opt-in)
+
+pool, _ := indra.NewPoolBuilder().
+    Workers(6).Threads(1).MemBudget(2 << 30).Furniture(true).Build()
+```
+
+PDF input and the text layer are described above (`CallPDF`, `CallText`,
+`PDFOptions`). `Page.Text()` is the reading-order line texts joined by newlines.
+
+`InitLib()` loads ONNX Runtime eagerly (optional; the constructors do it).
+Types: `OCR`, `Pool`, `PoolBuilder`, `Page`, `Line`, `Block`, `Gray`,
+`TextLayer`/`TextRun`/`TextChar`, `PDFOptions`, `Threads`. `AutoWorkers` and
+`PerHandleBytes` back the pool defaults.
+
+To drive the stages directly: `FromImage` / `FromRGBA` / `NewGray` build a
+`Gray`; `OCR.Detect`, `OCR.Upright` and `OCR.RecHeight` expose detection and
+deskew; `CropLine` / `PadBatch` / `WidthBatches` reproduce the recognizer's line
+preprocessing (used by [`tools/calib`](tools/)).
 
 ## Environment variables
 

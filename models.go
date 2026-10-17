@@ -7,16 +7,16 @@ import (
 	"fmt"
 )
 
-// Meta holds det_long_side, rec_height and the vocabs from meta.json.
-type Meta struct {
+// meta holds det_long_side, rec_height and the vocabs from meta.json.
+type meta struct {
 	DetLongSide int
 	RecHeight   int
-	Vocab       *Vocab
-	VocabCJK    *Vocab // rec_cjk recognizer vocab (CJK lines routed by script.onnx)
+	vocab       *vocab
+	vocabCJK    *vocab // rec_cjk recognizer vocab (CJK lines routed by script.onnx)
 }
 
-// ParseMeta parses meta.json content.
-func ParseMeta(data []byte) (*Meta, error) {
+// parseMeta parses meta.json content.
+func parseMeta(data []byte) (*meta, error) {
 	var d struct {
 		DetLongSide int    `json:"det_long_side"`
 		RecHeight   int    `json:"rec_height"`
@@ -26,11 +26,11 @@ func ParseMeta(data []byte) (*Meta, error) {
 	if err := json.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("indra: bad meta.json: %w", err)
 	}
-	v, err := VocabFromJSON(d.Vocab)
+	v, err := vocabFromJSON(d.Vocab)
 	if err != nil {
 		return nil, err
 	}
-	m := &Meta{DetLongSide: d.DetLongSide, RecHeight: d.RecHeight, Vocab: v}
+	m := &meta{DetLongSide: d.DetLongSide, RecHeight: d.RecHeight, vocab: v}
 	if d.DetLongSide == 0 {
 		m.DetLongSide = 1024
 	}
@@ -38,11 +38,11 @@ func ParseMeta(data []byte) (*Meta, error) {
 		m.RecHeight = 32
 	}
 	if d.VocabCJK != "" {
-		vc, err := VocabFromJSON(d.VocabCJK)
+		vc, err := vocabFromJSON(d.VocabCJK)
 		if err != nil {
 			return nil, err
 		}
-		m.VocabCJK = vc
+		m.vocabCJK = vc
 	}
 	return m, nil
 }

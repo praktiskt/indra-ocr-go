@@ -28,9 +28,9 @@ type mathLine struct {
 	conf float64
 }
 
-// MathReader reads math lines as LaTeX. Built lazily by OCR when OCR.Math is on;
+// mathReader reads math lines as LaTeX. Built lazily by OCR when OCR.Math is on;
 // its sessions belong to the OCR handle and are freed by OCR.Close.
-type MathReader struct {
+type mathReader struct {
 	cls, enc, init, step   *ort.DynamicAdvancedSession
 	height, channels       int
 	maxTokens, nTokens     int
@@ -38,7 +38,7 @@ type MathReader struct {
 	itos                   []string
 }
 
-func newMathReader() (*MathReader, error) {
+func newMathReader() (*mathReader, error) {
 	raw, err := modelFS.ReadFile("models/math_meta.json")
 	if err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func newMathReader() (*MathReader, error) {
 	if err := json.Unmarshal(raw, &mm); err != nil {
 		return nil, err
 	}
-	r := &MathReader{
+	r := &mathReader{
 		height: mm.Config.Height, channels: mm.Config.Channels,
 		maxTokens: mm.Config.MaxTokens, layers: mm.Config.DecLayers,
 		heads: mm.Config.DecHeads,
@@ -96,7 +96,7 @@ func newMathReader() (*MathReader, error) {
 }
 
 // Destroy releases the math sessions.
-func (m *MathReader) Destroy() {
+func (m *mathReader) Destroy() {
 	if m == nil {
 		return
 	}
@@ -131,7 +131,7 @@ func detokenize(tokens []string) string {
 }
 
 // flags runs mathcls over the recognizer's crops: true where the line is math.
-func (m *MathReader) flags(crops []lineCrop) []bool {
+func (m *mathReader) flags(crops []lineCrop) []bool {
 	out := make([]bool, len(crops))
 	if m == nil || len(crops) == 0 {
 		return out
@@ -175,7 +175,7 @@ func (m *MathReader) flags(crops []lineCrop) []bool {
 }
 
 // read crops each box at the math height and decodes LaTeX.
-func (m *MathReader) read(g *Gray, boxes [][4]float32) []mathLine {
+func (m *mathReader) read(g *Gray, boxes [][4]float32) []mathLine {
 	n := len(boxes)
 	out := make([]mathLine, n)
 	if m == nil || n == 0 {
@@ -197,7 +197,7 @@ func (m *MathReader) read(g *Gray, boxes [][4]float32) []mathLine {
 	return out
 }
 
-func (m *MathReader) decodeBatch(out []mathLine, crops []lineCrop, part []int) {
+func (m *mathReader) decodeBatch(out []mathLine, crops []lineCrop, part []int) {
 	b := len(part)
 	lines := make([][]float32, b)
 	hs := make([]int, b)

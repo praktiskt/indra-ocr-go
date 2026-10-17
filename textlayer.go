@@ -165,10 +165,10 @@ func (o *OCR) readableText(runs []TextRun) bool {
 			}
 			letters++
 			s := string(c)
-			_, a := o.M.Vocab.Index[s]
+			_, a := o.m.vocab.Index[s]
 			b := false
-			if o.M.VocabCJK != nil {
-				_, b = o.M.VocabCJK.Index[s]
+			if o.m.vocabCJK != nil {
+				_, b = o.m.vocabCJK.Index[s]
 			}
 			if a || b {
 				known++

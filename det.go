@@ -12,14 +12,14 @@ const (
 	coreXShrink = 0.15
 )
 
-// DetBox is x0,y0,x1,y1,score in input pixels.
-type DetBox struct {
+// detBox is x0,y0,x1,y1,score in input pixels.
+type detBox struct {
 	X0, Y0, X1, Y1 float32
 	Score          float32
 }
 
-// DecodeDet decodes one page. out is [3*h*w] in [c,h,w] order.
-func DecodeDet(out []float32, h, w int) []DetBox {
+// decodeDet decodes one page. out is [3*h*w] in [c,h,w] order.
+func decodeDet(out []float32, h, w int) []detBox {
 	if len(out) < 3*h*w {
 		return nil
 	}
@@ -65,7 +65,7 @@ func DecodeDet(out []float32, h, w int) []DetBox {
 		sumBot[l] += yc + float64(bot[idx])
 		sumScore[l] += p
 	}
-	var boxes []DetBox
+	var boxes []detBox
 	for i := 1; i <= n; i++ {
 		if area[i] < 2 {
 			continue
@@ -80,7 +80,7 @@ func DecodeDet(out []float32, h, w int) []DetBox {
 		ex := math.Min(coreXShrink*lh, 0.5*lh)
 		x0 := float64(left[i])*outStride - ex
 		x1 := float64(left[i]+right[i]-left[i]+1)*outStride + ex
-		boxes = append(boxes, DetBox{
+		boxes = append(boxes, detBox{
 			X0: float32(x0), Y0: float32(y0),
 			X1: float32(x1), Y1: float32(y1),
 			Score: float32(score),

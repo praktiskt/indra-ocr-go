@@ -48,7 +48,7 @@ func to2(a [][4]float64) [][]float64 {
 
 func TestDiffLineFeatures(t *testing.T) {
 	r := loadOrderRef(t)
-	got := LineFeatures(r.Boxes, 900, 1200, r.Texts)
+	got := lineFeatures(r.Boxes, 900, 1200, r.Texts)
 	flat := []float64{}
 	for _, row := range r.Feats {
 		flat = append(flat, row...)
@@ -70,7 +70,7 @@ func TestDiffLineFeatures(t *testing.T) {
 
 func TestDiffDecodeOrderFull(t *testing.T) {
 	r := loadOrderRef(t)
-	if got := DecodeOrder(r.A, 4); !reflect.DeepEqual(got, r.Order) {
+	if got := decodeOrder(r.A, 4); !reflect.DeepEqual(got, r.Order) {
 		t.Fatalf("order differs:\n got %v\nwant %v", got, r.Order)
 	}
 }
@@ -117,7 +117,7 @@ func intSetKey(g []int) string {
 
 func TestDiffBlocksOrder(t *testing.T) {
 	r := loadOrderRef(t)
-	if got := DecodeBlocksOrder(r.A, r.Same, r.Boxes, r.Cls); !reflect.DeepEqual(got, r.BlocksOrder) {
+	if got := decodeBlocksOrder(r.A, r.Same, r.Boxes, r.Cls); !reflect.DeepEqual(got, r.BlocksOrder) {
 		t.Fatalf("blocks_order differs:\n got %v\nwant %v", got, r.BlocksOrder)
 	}
 }
@@ -125,14 +125,14 @@ func TestDiffBlocksOrder(t *testing.T) {
 func TestDiffDecodeOrder(t *testing.T) {
 	// python: decode_order([[0,5],[-5,0]]) == [0,1]
 	a := [][]float64{{0, 5}, {-5, 0}}
-	if o := DecodeOrder(a, 4); !reflect.DeepEqual(o, []int{0, 1}) {
+	if o := decodeOrder(a, 4); !reflect.DeepEqual(o, []int{0, 1}) {
 		t.Fatalf("order = %v", o)
 	}
 }
 
 func TestDiffXYCut(t *testing.T) {
 	r := loadOrderRef(t)
-	if got := OrderXYCut(r.Boxes); !reflect.DeepEqual(got, r.Xycut) {
+	if got := orderXYCut(r.Boxes); !reflect.DeepEqual(got, r.Xycut) {
 		t.Fatalf("xycut differs:\n got %v\nwant %v", got, r.Xycut)
 	}
 }

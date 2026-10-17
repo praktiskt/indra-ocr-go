@@ -96,13 +96,26 @@ document corpus + the gauntlet.
 | `lib/` | embedded native libs (linux/amd64): ONNX Runtime, PDFium (PDF render + text layer) + C++ runtime |
 | `tools/` | model regeneration: `quantize_rec.py`, `quantize_order.py`, `calib/` (calibration crops), `gen_compose.py` (the text-layer diacritic table); native-lib vendoring: `vendor_pdfium.sh` |
 | `bench/opb/` | committed Omni Parse Bench harness (Go runner + `uv`-run prep/score); see [`bench/opb/README.md`](bench/opb/README.md) |
+| `ocr.go` | `OCR` handle, `Line`/`Page`, `NewOCR*`, `Call`, `CallAll` |
+| `detect.go` | detection (`Detect`, adaptive second pass) + line crops |
+| `recognize.go` | recognizer (script routing, CTC decode, math hooks) |
+| `upright.go` | orientation + deskew |
+| `textpage.go` | text-layer page path (`CallText`) |
+| `assemble.go` | gutter split, reading order, lines, markdown |
 | `det.go` | detector decode (connected components) |
-| `ocr_ort.go` | pipeline: detect / recognize / upright / `Call` / `CallAll` / assemble |
-| `session_ort.go` | ORT sessions, embedded-lib loading, per-model threads |
-| `pool.go` | worker pool (`NewPool`, `NewPoolAuto`, `NewPoolBuilder`, `CallAll`, `CallFiles`) |
-| `image.go` | grayscale, resize, rotate, skew, crop; `WidthBatches`/`PadBatch` |
-| `skew_py.go` | python-exact skew estimator |
+| `ortlib.go` | ORT loading (embedded libs / memfd / `ORT_LIB_PATH`) |
+| `session_ort.go` | ORT sessions, per-model threads |
+| `pool.go` | worker pool (`NewPool`, `NewPoolAuto`, `NewPoolBuilder`, `CallFiles`) |
+| `image.go` | `Gray`, image conversions |
+| `resize.go` | area / bilinear resampling |
+| `detinput.go` | `pageToInput`, ink map, `PadBatch`/`WidthBatches`, `orientInput` |
+| `crop.go` | `CropLine` |
+| `warp.go` | page rotation + `unrotateBox` |
+| `skew.go`, `skew_py.go` | skew estimators (600px port / python-exact) |
 | `order.go`, `layout.go` | reading order, layout blocks, markdown |
+| `pdf.go`, `pdfium.go`, `textlayer.go` | PDF input, PDFium bridge, text layer |
+| `math.go` | math (LaTeX) encoder/decoder |
+| `vocab.go`, `models.go`, `embed.go` | vocab, `meta.json`, embedded assets |
 | `compose_table.go` | generated spacing-diacritic composition table (`tools/gen_compose.py`); used by `pdfium.go` |
 | `docs/` | `OPTIMIZATIONS_LOG.md` (perf history), `DEVIATIONS.md` (differences from upstream indra) |
 | `.agents/skills/` | `quality-eval` skill (guard, gauntlet, reading-order, Omni Parse Bench, A/B method) |

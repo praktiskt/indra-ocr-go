@@ -1,4 +1,4 @@
-// Token vocabulary for the line recognizer. Port of vocab.py (inference
+// token vocabulary for the line recognizer. Port of vocab.py (inference
 // subset): class 0 is the CTC blank, class i+1 is Chars[i].
 package indra
 
@@ -9,15 +9,15 @@ import (
 	"unicode"
 )
 
-// Vocab holds the recognizer tokens (characters, or LaTeX commands).
-type Vocab struct {
+// vocab holds the recognizer tokens (characters, or LaTeX commands).
+type vocab struct {
 	Chars []string
 	Index map[string]int // token -> class id (blank excluded)
 	cmds  bool           // any multi-char token
 }
 
 // FromJSON parses {"blank":0,"chars":[...]} as stored in meta.json.
-func VocabFromJSON(s string) (*Vocab, error) {
+func vocabFromJSON(s string) (*vocab, error) {
 	var d struct {
 		Blank int      `json:"blank"`
 		Chars []string `json:"chars"`
@@ -28,12 +28,12 @@ func VocabFromJSON(s string) (*Vocab, error) {
 	if d.Blank != 0 {
 		return nil, fmt.Errorf("indra: only blank=0 vocabularies are supported")
 	}
-	return NewVocab(d.Chars), nil
+	return newVocab(d.Chars), nil
 }
 
-// NewVocab builds the index over chars.
-func NewVocab(chars []string) *Vocab {
-	v := &Vocab{Chars: append([]string(nil), chars...), Index: make(map[string]int, len(chars))}
+// newVocab builds the index over chars.
+func newVocab(chars []string) *vocab {
+	v := &vocab{Chars: append([]string(nil), chars...), Index: make(map[string]int, len(chars))}
 	for i, c := range v.Chars {
 		v.Index[c] = i + 1
 		if len([]rune(c)) > 1 {
@@ -44,20 +44,20 @@ func NewVocab(chars []string) *Vocab {
 }
 
 // NClasses counts blank + tokens.
-func (v *Vocab) NClasses() int { return len(v.Chars) + 1 }
+func (v *vocab) NClasses() int { return len(v.Chars) + 1 }
 
 // SpaceID returns the class id of " ", or -1.
-func (v *Vocab) SpaceID() int {
+func (v *vocab) SpaceID() int {
 	if id, ok := v.Index[" "]; ok {
 		return id
 	}
 	return -1
 }
 
-// Decode maps class ids back to text. Mirrors Vocab.decode: a space is put
+// Decode maps class ids back to text. Mirrors vocab.decode: a space is put
 // back between a LaTeX command and a following letter so "\alpha"+"x" does
 // not read back as "\alphax".
-func (v *Vocab) Decode(ids []int) string {
+func (v *vocab) Decode(ids []int) string {
 	var sb strings.Builder
 	var toks []string
 	for _, id := range ids {
@@ -101,7 +101,7 @@ func isASCIILetter(r rune) bool {
 }
 
 // IsSpace reports whether tok is a blank separator for gap splitting.
-func (v *Vocab) IsSpace(tok any, spaceID int) bool {
+func (v *vocab) IsSpace(tok any, spaceID int) bool {
 	switch t := tok.(type) {
 	case int:
 		return t == 0 || t == spaceID
@@ -117,8 +117,8 @@ func indicBlock(r rune) bool {
 	return (r >= 0x0900 && r <= 0x097F) || (r >= 0x0980 && r <= 0x09FF)
 }
 
-// IndicValid is false when a Devanagari/Bengali mark has no base to attach to.
-func IndicValid(text string) bool {
+// indicValid is false when a Devanagari/Bengali mark has no base to attach to.
+func indicValid(text string) bool {
 	var prev rune
 	var hasPrev bool
 	for _, c := range text {
