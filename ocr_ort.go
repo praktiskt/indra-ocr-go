@@ -435,7 +435,8 @@ func f64boxes(bs [][4]float32) [][4]float64 {
 // and lines the layer does not cover are OCR'd (hybrid). Falls back to plain
 // OCR when the layer is not trusted (scan, invisible layer, broken font map,
 // runs with no ink). Ordering uses the order model; upstream's pdf_order
-// (content order) is not ported. Source is "text" or "hybrid".
+// (content order) was ported and rejected (neutral headline, multi-column
+// regression — see docs/OPTIMIZATIONS_LOG.md). Source is "text" or "hybrid".
 func (o *OCR) CallText(g *Gray, tl *TextLayer) *Page {
 	if trusted, _ := o.readTextLayer(g, tl); !trusted {
 		return o.Call(g)

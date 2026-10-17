@@ -114,7 +114,8 @@ page := ocr.CallText(gray, &indra.TextLayer{Runs: []indra.TextRun{
 broken-font characters, and its runs sit on ink (the `indra_ocr/textlayer.py`
 checks); otherwise it falls back to plain OCR. `Page.Source` is `"text"` or
 `"hybrid"` (lines the layer does not cover are OCR'd). Ordering uses the order
-model; upstream `pdf_order` is not yet ported.
+model; upstream `pdf_order` is not ported (ported and measured neutral/negative:
+it regresses multi-column, see `docs/OPTIMIZATIONS_LOG.md`).
 
 `ocr.Furniture = true` (or `PoolBuilder.Furniture(true)`) keeps page headers and
 footers in the markdown, as upstream `load(furniture=True)`; the default drops
@@ -133,7 +134,9 @@ pages, err = ocr.CallPDF(pdfBytes, &indra.PDFOptions{Mode: "ocr"})
 
 `PDFOptions`: `DPI` (default 200), `Mode` (`"auto"` / `"ocr"`), `MaxPages`.
 Upstream's `pdf_order` (keep the PDF content order) is not ported — Go orders
-with the order model; on OPB `realdoc_pdfs` that costs ~1.8pp headline.
+with the order model. It was ported and measured: neutral on the full OPB
+headline and -1.14pp on `olmo_multi_column`, so it is rejected (see
+`docs/OPTIMIZATIONS_LOG.md`).
 
 ## API
 

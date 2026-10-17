@@ -137,12 +137,14 @@ delta / baseline.
   0.643, layout 0.750) vs upstream **0.7121** (-1.6pp), deterministic. The
   default OCR path is unaffected.
 - `mode="ocr"` ignores the text layer; `PDFOptions.DPI` defaults to 200.
-- **`pdf_order` (content order) not shipped — comparison invalidated:** an
-  earlier port (order_backtracks + pdf_order_coherent + content keys through the
-  split/order) looked neutral-to-worse (ON 0.670 vs OFF 0.682) but that was
-  measured while the buffer bug below was dropping/blanking pages, so it is not a
-  result. Go currently orders with the order model; re-test against the fixed
-  build if pursued.
+- **`pdf_order` (content order) not shipped — measured neutral/negative:** the
+  earlier port looked neutral-to-worse (ON 0.670 vs OFF 0.682) but that was
+  measured while the buffer bug below was dropping/blanking pages, so it was not
+  a result. Re-ported faithfully on the fixed build (deterministic text path):
+  full OPB `-pdf -furniture` headline 0.6052 -> 0.6048 and `olmo_multi_column`
+  0.8324 -> 0.8210 (-1.14pp). Rejected; see the Rejected section for numbers and
+  the untried lever (Go does not split text-layer lines at wide gaps, so the
+  boxes fed to `pdf_order` differ from upstream's).
 - **Resolved (was "not bit-reproducible"): the buffer fix below explains it.** OPB
   `realdoc_pdfs` used to flip ~5/88 pages run to run; that was the GC freeing the
   PDF buffer mid-render, not the `CallText` assembly. Now 0/88 differ and the
@@ -325,6 +327,39 @@ delta / baseline.
 ---
 
 ## Rejected (do not re-run without new data)
+
+### `pdf_order` (keep the PDF content order) — neutral, regresses multi-column
+
+- **What was ported** (faithful to upstream `textlayer.order_backtracks` +
+  `pdf_order_coherent` and `document.assign_runs`): the smallest run (content)
+  index per detected line, the pairwise order logits `a`, and in `assemble` the
+  content order kept when every line has a content index and
+  `pdf_order_coherent` accepts it (`order_backtracks <= max(1, 0.02n)` and, on
+  >= 3 boxes, the model agrees with >= `MIN_MODEL_AGREEMENT` = 0.85 of
+  consecutive pairs). Wired only into the text-layer path (`CallText` /
+  `CallPDF` `auto`); the image path is untouched.
+- **Full OPB, 2937 pages, `-pdf -furniture`, 8x1t, deterministic:**
+  - no `pdf_order`: headline **0.6052** (text 0.4012, tables 0.5364, layout 0.8781)
+  - +`pdf_order`: headline **0.6048** (text 0.4008, tables 0.5356, layout 0.8781)
+  - **-0.04pp headline, -0.07pp tables, layout flat** — neutral-to-slightly-worse.
+- **582/2937 pages re-sequence** (tables_derived 291, olmo_arxiv_math 120,
+  olmo_table_tests 45, synth_copies 41, olmo_multi_column 38, ...), but only 4
+  suites move at all, and the material one is a **regression**:
+  `olmo_multi_column` 0.8324 -> **0.8210 (-1.14pp)** on 137 pages (38
+  re-sequenced), reproduced on an isolated subset run; `olmo_table_tests`
+  -0.28pp, `tables_derived` -0.04pp. No speed change (order is once per page).
+- **The old "residual is `pdf_order`" note was wrong.** On the suite it named
+  (`realdoc_pdfs`) the text layer applies to ~1 page (upstream sources there: 83
+  ocr / 4 hybrid / 1 text), and `pdf_order` differs on **0/88** pages. The
+  `realdoc_pdfs` gap with furniture is 0.7076 vs upstream 0.7121 (0.45pp), not
+  `pdf_order`.
+- **Untried lever before any re-run:** Go's text-layer lines are **not** split at
+  wide gaps (upstream splits them because its tokens carry per-char x), so the
+  box set fed to `pdf_order` differs from upstream's. A like-for-like comparison
+  needs that port first — that, not the coherence rule, is the likely reason the
+  multi-column verdict differs from upstream's. Port the text-layer line split,
+  then re-measure.
+- Not shipped (implementation reverted).
 
 ### `script.onnx` / `mathcls.onnx` int8
 
@@ -533,9 +568,14 @@ with `cv2.setNumThreads(1)`:
   - **Go OCR (image input): headline 0.5784** (text 0.332, tables 0.523, layout
     0.880) vs upstream `--mode ocr` **0.5714** — **+0.7pp, the port beats the
     reference on OCR.**
-  - **Go `auto` (PDF text layer via `CallPDF`): headline 0.6048** (text 0.401)
-    vs upstream `auto` **0.6155** — within 1.1pp; the residual is the unported
-    `pdf_order`.
+  - **Go `auto` (PDF text layer via `CallPDF`): headline 0.6052** (text 0.4012,
+    tables 0.5364, layout 0.8781, current build) vs upstream `auto` **0.6155** —
+    ~1.0pp. The residual is **not** the unported `pdf_order`: porting it changes
+    582 pages but is neutral on the headline (0.6052 -> 0.6048) and regresses
+    `olmo_multi_column` (-1.14pp) — see the Rejected section. Likely lever: Go
+    does not split text-layer lines at wide gaps (upstream does).
+  - (The `0.6048`/`0.5784` figures below are from the pre-`rec_cjk`-int8 build;
+    re-run for a same-build OCR number.)
   - The original Go default was **0.5687**; since then CJK routing (+0.52pp),
     furniture (~+0.4pp) and the PDF text layer (~+2.6pp) took it to 0.6048.
 - `header_footer` opened the last OCR gap (0.146 -> 0.589 vs upstream 0.606);
@@ -544,12 +584,14 @@ with `cv2.setNumThreads(1)`:
   OCR-only 57.1 (57.5).
 - **Text layer (was a capability gap):** upstream `mode=auto` reads embedded
   PDF text layers (`source` = text/hybrid); the port now does too, via the
-  embedded PDFium (`CallPDF` / `bench/opb -pdf`), reaching 0.6048 vs upstream
-  `auto` 0.6155. Compare OCR-only with `--mode ocr`.
+  embedded PDFium (`CallPDF` / `bench/opb -pdf`), reaching 0.6052 vs upstream
+  `auto` 0.6155. Compare OCR-only with `--mode ocr`. `pdf_order` (keep the PDF
+  content order) was ported and rejected (neutral headline, multi-column
+  regression); the residual is elsewhere (text-layer line splitting).
 
 ## Reference numbers (dev box)
 
-FUNSD 199-page guard (`TestCorpusRecall`, threads=2): shipped recall **0.9137**.
+FUNSD 199-page guard (`TestCorpusRecall`, threads=2): shipped recall **0.9134**.
 
 Brutal-print gauntlet (threads=2), current:
 

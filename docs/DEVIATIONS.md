@@ -55,8 +55,12 @@ method in [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-
 ## `pdf_order` (PDF content order) not ported
 
 - Upstream keeps the PDF content order when it is coherent (`order=pdf`); the Go
-  port orders with the order model. On OPB `realdoc_pdfs` (auto) the Go headline
-  is 0.6964 vs upstream 0.7121. Open item; see `OPTIMIZATIONS_LOG.md`.
+  port orders with the order model. **Ported and measured, then rejected:** on
+  the full OPB (`-pdf -furniture`) it changes 582/2937 pages but is neutral on the
+  headline (0.6052 -> 0.6048) and regresses `olmo_multi_column` (0.8324 ->
+  0.8210, -1.14pp). It also barely applies to `realdoc_pdfs` (~1 text-layer page;
+  0/88 pages differ). Not shipped. See the Rejected section of
+  `OPTIMIZATIONS_LOG.md`.
 
 ## `mode="text"` and the unreadable-script nuance are not ported
 
