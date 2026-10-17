@@ -6,14 +6,21 @@ package indra
 // PDFOptions configure PDF conversion.
 type PDFOptions struct {
 	DPI      float64 // render dpi (default 200, matching upstream)
-	Mode     string  // "auto" (default: text layer where sound, OCR elsewhere) or "ocr"
+	Mode     string  // "auto" (default: text layer where sound, OCR elsewhere), "ocr", or "text"
 	MaxPages int     // 0 = all pages
 }
 
-// CallPDF converts PDF bytes to Pages. Each page is rendered and, in "auto"
-// mode, its PDF text layer is read; where the layer is sound the line text comes
-// from it (Source "text"/"hybrid"), elsewhere the page is OCR'd. "ocr" mode
-// ignores the text layer. Pages the engine cannot open are skipped.
+// CallPDF converts PDF bytes to Pages. Each page is rendered and, unless
+// mode="ocr", its PDF text layer is read; where the layer is used the line text
+// comes from it (Source "text"/"hybrid"), elsewhere the page is OCR'd. mode:
+//
+//   - "auto" (default): the layer is used when the trust checks pass, or when
+//     its script is one the recognizer cannot read (a layer it cannot read beats
+//     OCR, unless the font map is broken) — upstream's `unreadable` nuance.
+//   - "ocr": never read the layer.
+//   - "text": use the layer even when the trust checks fail (upstream mode="text").
+//
+// Pages the engine cannot open are skipped.
 func (o *OCR) CallPDF(data []byte, opts *PDFOptions) ([]*Page, error) {
 	dpi, mode, maxPages := 200.0, "auto", 0
 	if opts != nil {
@@ -50,9 +57,27 @@ func (o *OCR) CallPDF(data []byte, opts *PDFOptions) ([]*Page, error) {
 			continue
 		}
 		layer := &TextLayer{Runs: runs, Invisible: invis > maxInvisibleFrac, Rotated: rot, Chars: chars}
-		out = append(out, o.CallText(g, layer))
+		if o.useTextLayer(g, layer, mode) {
+			out = append(out, o.textPage(g, layer))
+			continue
+		}
+		p := o.Call(g)
+		p.Source = "ocr"
+		out = append(out, p)
 	}
 	return out, nil
+}
+
+// useTextLayer is document.pdf_page's text-layer decision: mode="text" always
+// uses the layer; "auto" uses it when the trust checks pass, or when the
+// recognizer cannot read the layer's script and its codes are not junk (broken
+// font map). A layer the recognizer cannot read beats OCR; a broken map does not.
+func (o *OCR) useTextLayer(g *Gray, layer *TextLayer, mode string) bool {
+	if mode == "text" {
+		return true
+	}
+	trusted, reason := o.readTextLayer(g, layer)
+	return trusted || (reason != brokenFontMap && !o.readableText(layer.Runs))
 }
 
 // CallPDF converts PDF bytes over the pool.

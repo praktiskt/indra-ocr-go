@@ -441,6 +441,15 @@ func (o *OCR) CallText(g *Gray, tl *TextLayer) *Page {
 	if trusted, _ := o.readTextLayer(g, tl); !trusted {
 		return o.Call(g)
 	}
+	return o.textPage(g, tl)
+}
+
+// textPage runs the text-layer page path on a layer the caller has decided to
+// use (trusted, or forced by mode="text" / an unreadable script): detect on the
+// page, take each line's text from the layer, OCR the lines it does not cover
+// (hybrid) when the layer's script is readable, and assemble. Source is "text"
+// or "hybrid" (upstream _text_page).
+func (o *OCR) textPage(g *Gray, tl *TextLayer) *Page {
 	g2, k, skew := o.Upright(g)
 	boxes := o.Detect(g2)
 	txt, _ := assignRuns(tl.Runs, f64boxes(boxes))

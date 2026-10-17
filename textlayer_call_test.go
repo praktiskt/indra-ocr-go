@@ -119,3 +119,51 @@ func TestCallTextWithLayer(t *testing.T) {
 		t.Fatalf("word overlap %d/%d too low", got, len(words))
 	}
 }
+
+// inkGray is a white page with ink under box (so the text-layer no-ink check
+// passes).
+func inkGray(box [4]float64) *Gray {
+	g := &Gray{Pix: make([]uint8, 100*100), W: 100, H: 100}
+	for i := range g.Pix {
+		g.Pix[i] = 255
+	}
+	for y := int(box[1]); y < int(box[3]); y++ {
+		for x := int(box[0]); x < int(box[2]); x++ {
+			g.Pix[y*100+x] = 0
+		}
+	}
+	return g
+}
+
+// TestUseTextLayer covers document.pdf_page's decision: mode="text" forces the
+// layer; "auto" trusts it, or rescues it when the recognizer cannot read the
+// script (but never a broken font map).
+func TestUseTextLayer(t *testing.T) {
+	ocr := &OCR{M: &Meta{Vocab: NewVocab(strings.Split("abcdefghijklmnopqrstuvwxyz", ""))}}
+	box := [4]float64{10, 10, 40, 20}
+	g := inkGray(box)
+	latin := []TextRun{{Text: "hello", Box: box}}
+	arabic := []TextRun{{Text: "مرحبا", Box: box}}
+
+	// mode="text" uses the layer even when the trust checks fail
+	if !ocr.useTextLayer(g, &TextLayer{Runs: latin, Chars: 5, Invisible: true}, "text") {
+		t.Errorf(`mode="text" with an untrusted layer: want use`)
+	}
+	// auto: a trusted layer is used
+	if !ocr.useTextLayer(g, &TextLayer{Runs: latin, Chars: 5}, "auto") {
+		t.Errorf("auto with a trusted layer: want use")
+	}
+	// auto: untrusted but the script is unreadable -> use (beats OCR)
+	if !ocr.useTextLayer(g, &TextLayer{Runs: arabic, Chars: 5, Invisible: true}, "auto") {
+		t.Errorf("auto with an unreadable untrusted layer: want use")
+	}
+	// auto: untrusted and the script is readable -> OCR
+	if ocr.useTextLayer(g, &TextLayer{Runs: latin, Chars: 5, Invisible: true}, "auto") {
+		t.Errorf("auto with a readable untrusted layer: want OCR")
+	}
+	// auto: a broken font map is never rescued by the unreadable rule
+	broken := &TextLayer{Runs: []TextRun{{Text: "\uFFFDمرحبا", Box: box}}, Chars: 6}
+	if ocr.useTextLayer(g, broken, "auto") {
+		t.Errorf("auto with a broken font map: want OCR")
+	}
+}

@@ -132,7 +132,9 @@ pages, err := ocr.CallPDF(pdfBytes, nil)                       // auto
 pages, err = ocr.CallPDF(pdfBytes, &indra.PDFOptions{Mode: "ocr"})
 ```
 
-`PDFOptions`: `DPI` (default 200), `Mode` (`"auto"` / `"ocr"`), `MaxPages`.
+`PDFOptions`: `DPI` (default 200), `Mode` (`"auto"` / `"ocr"` / `"text"`), `MaxPages`.
+`"text"` uses the text layer even when the trust checks fail; `"auto"` also uses
+an untrusted layer when the recognizer cannot read its script.
 Upstream's `pdf_order` (keep the PDF content order) is not ported — Go orders
 with the order model. It was ported and measured: neutral on the full OPB
 headline and -1.14pp on `olmo_multi_column`, so it is rejected (see
@@ -150,7 +152,7 @@ headline and -1.14pp on `olmo_multi_column`, so it is rejected (see
 | `(*OCR).Math` | Read math lines as LaTeX (upstream `math=True`; embeds ~20 MB) |
 | `(*Page).Text()` | Reading-order line texts joined by newlines |
 | `(*OCR).CallPDF(data, opts)` | Convert PDF bytes: render + text layer (`mode="auto"`) |
-| `PDFOptions` | PDF render: `DPI` / `Mode` ("auto"/"ocr") / `MaxPages` |
+| `PDFOptions` | PDF render: `DPI` / `Mode` ("auto"/"ocr"/"text") / `MaxPages` |
 | `NewPool(workers, threads)` | Create concurrent pool (explicit sizing) |
 | `NewPoolAuto()` | Pool sized for the host (AutoWorkers, 1 thread each) |
 | `NewPoolBuilder()` | Chainable builder: Workers/Threads/ThreadsPerModel/MemBudget/Furniture/Math |

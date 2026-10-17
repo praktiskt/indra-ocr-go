@@ -49,6 +49,10 @@ const (
 	maxNoInkFrac     = 0.03
 	inkDark          = 160 // gray level below which a pixel counts as ink
 	readableMin      = 0.9 // share of the layer's letters the recognizer must know
+	// brokenFontMap is textlayer.BROKEN_FONT_MAP: the layer's codes are not text.
+	// A broken map still places glyphs, so it is treated specially (no "unreadable"
+	// override, and the page is known upright when the glyphs are).
+	brokenFontMap = "broken font map"
 )
 
 // badCharCount is textlayer.bad_char_count: replacement, private-use, surrogate,
@@ -141,7 +145,7 @@ func (o *OCR) readTextLayer(g *Gray, tl *TextLayer) (bool, string) {
 			bad += badCharCount(r.Text)
 		}
 		if float64(bad) > maxBadCharFrac*float64(chars) {
-			return false, "broken font map"
+			return false, brokenFontMap
 		}
 	}
 	if f := noInkFrac(g, tl.Runs); f > maxNoInkFrac {

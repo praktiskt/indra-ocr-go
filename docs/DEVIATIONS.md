@@ -62,11 +62,18 @@ method in [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-
   0/88 pages differ). Not shipped. See the Rejected section of
   `OPTIMIZATIONS_LOG.md`.
 
-## `mode="text"` and the unreadable-script nuance are not ported
+## `mode="text"` is ported; the broken-font-map turn nuance is not
 
-- `PDFOptions.Mode` is `"auto"` or `"ocr"`. Upstream also has `"text"` (use the
-  layer even when the trust checks fail) and, in `auto`, uses the layer for
-  scripts the recognizer cannot read. Not implemented.
+- `PDFOptions.Mode` is `"auto"` / `"ocr"` / `"text"`. `"text"` uses the layer
+  even when the trust checks fail (upstream `mode="text"`), and in `"auto"` an
+  untrusted layer is used when the recognizer cannot read its script and the
+  font map is not broken (upstream `document.pdf_page`'s `unreadable` rule).
+  See `OPTIMIZATIONS_LOG.md` (`v0.27.0`).
+- **Not ported:** when an untrusted layer's font map is broken and its glyphs are
+  mostly upright, upstream skips orientation (the map still places glyphs, so the
+  page's uprightness is known); Go always runs `Upright`. Also, upstream's text
+  page does not run orientation/deskew at all, while the Go text path does
+  (`textPage` calls `Upright`, a no-op on an upright render).
 
 ## Quantized models
 

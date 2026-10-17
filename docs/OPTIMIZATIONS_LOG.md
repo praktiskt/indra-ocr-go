@@ -18,6 +18,33 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### PDF text layer: `mode="text"` + the unreadable-script rescue — `v0.27.0`
+
+- **What:** `PDFOptions.Mode` gains `"text"` (use the layer even when the trust
+  checks fail) and, in `"auto"`, an untrusted layer is now used when the
+  recognizer cannot read its script (`readable()` false, i.e. < 90% of the
+  layer's letters are known to `vocab`/`vocab_cjk`) and its font map is not
+  broken — upstream `document.pdf_page`'s `unreadable` rule. A layer the
+  recognizer cannot read beats confabulating OCR; a broken font map does not.
+  Wired in `CallPDF` (`useTextLayer`); `CallText` keeps its trust gate. The
+  image/OCR path is untouched.
+- **Why it matters:** on the full OPB it fires on **3/2937** pages, all garbled
+  by OCR before: a Gurmukhi (`pan_Guru`) sheet and two Japanese NTA forms now
+  read correctly from the layer.
+- **Quality** (full OPB, `-pdf -furniture`, 8x1t, deterministic; base = shipped):
+  headline 0.6052 -> **0.6054** (+0.02pp), text 0.4012 -> 0.4022 (+0.09pp),
+  tables flat, layout -0.04pp; `multilingual` 0.5109 -> **0.5543 (+4.34pp)**,
+  `multiling_finepdfs` 0.5740 -> 0.5784 (+0.44pp). 3 pages change, none
+  degrades > 5pp. No speed change.
+- **`mode="text"` is a capability add** (opt-in), not exercised by the OPB run.
+- Unit test `TestUseTextLayer` covers the decision (force / trusted / unreadable
+  rescue / readable fallback / broken-font-map exclusion).
+- **Not ported (still):** the broken-font-map *turn* nuance — when an untrusted
+  layer's map is broken and the glyphs are mostly upright, upstream skips
+  orientation. Go always runs `Upright`. A preprocessing quality mechanism
+  (orient false positives), so it needs the guard + cord-photo + gauntlet, not
+  just the OPB; left for its own change.
+
 ### Math decode loop: reuse constant-shape tensors — `v0.26.0`
 
 - `math.go` `decodeBatch` allocated and destroyed the `token`/`pos`/`logits`

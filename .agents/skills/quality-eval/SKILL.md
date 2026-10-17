@@ -198,7 +198,7 @@ Full-corpus result (dev box, all 2937 pages, 8 workers x 1 thread):
 
 | run | headline | text | tables | layout |
 |---|---|---|---|---|
-| **Go `auto` (PDF text layer, `-furniture`)** | **0.6048** | 0.401 | 0.536 | 0.877 |
+| **Go `auto` (PDF text layer, `-furniture`)** | **0.6054** | 0.402 | 0.536 | 0.878 |
 | Go OCR (`-furniture`) | 0.5784 | 0.332 | 0.523 | 0.880 |
 | Go OCR (default) | 0.5739 | 0.319 | 0.523 | 0.880 |
 | upstream `auto` | 0.6155 | 0.405 | 0.563 | 0.879 |
@@ -208,10 +208,11 @@ Full-corpus result (dev box, all 2937 pages, 8 workers x 1 thread):
 57.5, median 228/303 ms — my runs reproduce them within ~0.5.)
 
 The port **beats upstream on OCR** (0.5784 vs 0.5714, `-furniture`) and reaches
-**within ~1pp of upstream `auto`** with the PDF text layer (`-pdf`, 0.6052 vs
+**within ~1pp of upstream `auto`** with the PDF text layer (`-pdf`, 0.6054 vs
 0.6155; the residual is **not** `pdf_order` — that was ported and rejected,
 neutral headline + multi-column regression). CJK routing +0.52pp, furniture
-~+0.4pp, the text layer ~+2.6pp over the original 0.5687.
+~+0.4pp, the text layer ~+2.6pp, the unreadable-script rescue ~+0.02pp headline
+but `multilingual` +4.3pp, over the original 0.5687.
 
 Caveats:
 - Go markdown drops page furniture by default (`-furniture` /
