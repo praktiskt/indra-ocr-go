@@ -18,6 +18,39 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### PDFium concurrency: one library instance per concurrent document — `v0.28.1`
+
+- **Bug:** PDFium's C API is not thread-safe — the API header allows only one
+  call in flight against a loaded copy. Every entry point went through a single
+  process-wide library (`pdfium_initlib` called plain `FPDF_InitLibrary`), so
+  concurrent `CallPDF` (`Pool.CallPDF` from several goroutines, `OCR.CallPDF`
+  from several goroutines) raced PDFium's globals and corrupted its heap
+  (`benchthr -mode pdf` drives 16 concurrent `CallPDF`).
+- **Fix:** PDFium's globals live in the *loaded library image*, so the port now
+  opens N independent copies — a separate memfd and `dlopen(..., RTLD_LOCAL)`
+  each, with its own resolved entry-point table — and lends one per concurrent
+  document (`pdfiumPool`, cap `min(NumCPU, 8)`, opened lazily, so a
+  single-threaded caller still opens exactly one). Distinct instances render in
+  parallel; nothing is serialized. This is **not** an init flag:
+  `FPDF_LIBRARY_CONFIG` (v1–v3) has no thread-safety field — upstream's own
+  guidance is a mutex or separate processes.
+- **Evidence (dev box, 16 cores):** a scratch probe driving **one** instance from
+  8 goroutines segfaults PDFium; with the pool, 8 goroutines render
+  bit-identical to the sequential baseline. Committed `TestPDFiumConcurrentRender`
+  (8 goroutines x 2 rounds, hash of every page's pixels + runs) catches a
+  regression to a shared instance. 8 instances = 32 distinct libpdfium mapped
+  ranges, +~6 MB RSS each (touched) — negligible against ~120–260 MB/handle.
+  Concurrent `CallPDF` (8 goroutines x 2 pages): 47.7 -> 16.2 ms/page (2.95x);
+  0/80 divergent `CallPDF` runs.
+- **Quality:** scheduling/resources only — rendering itself is untouched, and
+  single-threaded output is bit-identical (scheduling-only change, waives the
+  gauntlet per the skill). The **OPB runner is sequential** (one page at a time,
+  `bench/opb`), so the official benchmark takes one uncontended instance: no
+  timing or score change. Image/OCR paths are untouched.
+- **Why no big lock:** a single global mutex would make every concurrent PDF
+  workload single-threaded in its render+text stage and cap throughput at one
+  renderer; per-instance copies keep the parallel path parallel.
+
 ### PDF text layer: `mode="text"` + the unreadable-script rescue — `v0.27.0`
 
 - **What:** `PDFOptions.Mode` gains `"text"` (use the layer even when the trust

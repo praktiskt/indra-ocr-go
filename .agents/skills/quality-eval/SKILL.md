@@ -249,6 +249,9 @@ why each was accepted or rejected so settled questions aren't re-litigated.
 - Concurrency: ORT sessions are NOT safe for concurrent `Run`. Every parallel
   path must give each concurrent Run its own session set, and prove
   bit-identical output (`-race` test) + recall parity, not just "tests pass".
+  PDFium (the PDF renderer) is likewise not thread-safe: `CallPDF` takes its own
+  library *instance* per concurrent call (`pdfiumPool`), so a PDF path must not
+  share one instance across goroutines either.
 - Orient/threshold changes must ALSO pass the cord photo subset (known
   `rot=180` false positive on dark-background receipts) plus the FUNSD guard.
 - Downstream users of the gauntlet: GT-sparse sroie rows and joined-token

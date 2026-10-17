@@ -32,21 +32,26 @@ func (o *OCR) CallPDF(data []byte, opts *PDFOptions) ([]*Page, error) {
 		}
 		maxPages = opts.MaxPages
 	}
-	if err := loadPDFium(); err != nil {
-		return nil, err
-	}
-	doc, buf, err := pdfOpen(data)
+	// PDFium is not thread-safe within one loaded copy, so each concurrent
+	// CallPDF works on its own instance (see pdfiumPool); renditions on distinct
+	// instances run in parallel.
+	inst, err := pdfiumInsts.acquire()
 	if err != nil {
 		return nil, err
 	}
-	defer pdfClose(doc, buf)
-	n := pdfPageCount(doc)
+	defer pdfiumInsts.release(inst)
+	doc, buf, err := inst.open(data)
+	if err != nil {
+		return nil, err
+	}
+	defer inst.close(doc, buf)
+	n := inst.pageCount(doc)
 	if maxPages > 0 && n > maxPages {
 		n = maxPages
 	}
 	out := make([]*Page, 0, n)
 	for i := 0; i < n; i++ {
-		g, runs, chars, rot, invis, ok := pdfProcess(doc, i, dpi/72.0)
+		g, runs, chars, rot, invis, ok := inst.process(doc, i, dpi/72.0)
 		if !ok {
 			continue
 		}

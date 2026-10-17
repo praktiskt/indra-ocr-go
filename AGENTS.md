@@ -71,6 +71,13 @@ document corpus + the gauntlet.
 
 - **ORT sessions are not safe for concurrent `Run`.** Every parallel path must
   give each concurrent `Run` its own session set.
+- **PDFium is not thread-safe either.** No two PDFium calls may be in flight
+  against one loaded copy. `CallPDF` takes its own *instance* per concurrent
+  call from `pdfiumPool` (a separate memfd + `dlopen RTLD_LOCAL` copy of
+  `libpdfium.so`, cap `min(NumCPU, 8)`, opened lazily) — PDFium's globals live in
+  the loaded image, so copies are independent and render in parallel. Do not add
+  a PDF path that shares one instance across goroutines: it corrupts PDFium's
+  heap (see `docs/OPTIMIZATIONS_LOG.md`, `v0.28.1`).
 - **Keep `SessionOptions` in sync with upstream `indra_ocr/pipeline.py`**
   (CPU memory arena, inter-op threads, graph-opt level, per-model threads).
   Runtime *config* drifts silently and moves RSS/throughput without touching a

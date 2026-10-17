@@ -1,10 +1,14 @@
 package indra
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"fmt"
 	"os"
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -47,5 +51,91 @@ func TestCallPDFPages(t *testing.T) {
 	}
 	if empty != 0 {
 		t.Errorf("%d of 12 pages blank, want 0", empty)
+	}
+}
+
+// TestPDFiumConcurrentRender guards PDFium thread safety. PDFium's C API is not
+// thread-safe — only one call may be in flight per loaded copy — and the copies
+// share no state, so a concurrent caller must land on its own instance
+// (pdfiumPool). Rendering the same PDF from several goroutines must reproduce
+// the sequential result byte for byte; sharing one instance corrupts PDFium's
+// globals (crashes, or pages that differ).
+func TestPDFiumConcurrentRender(t *testing.T) {
+	if os.Getenv("INDRA_TEST_IMAGES") == "" {
+		t.Skip("set INDRA_TEST_IMAGES=1")
+	}
+	data, err := os.ReadFile("testdata/multipage12.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	render := func() ([32]byte, error) {
+		inst, err := pdfiumInsts.acquire()
+		if err != nil {
+			return [32]byte{}, err
+		}
+		defer pdfiumInsts.release(inst)
+		doc, buf, err := inst.open(data)
+		if err != nil {
+			return [32]byte{}, err
+		}
+		defer inst.close(doc, buf)
+		h := sha256.New()
+		put := func(v any) { _ = binary.Write(h, binary.LittleEndian, v) }
+		n := inst.pageCount(doc)
+		put(int64(n))
+		for i := 0; i < n; i++ {
+			g, runs, chars, rot, invis, ok := inst.process(doc, i, 200.0/72.0)
+			put(ok)
+			if !ok {
+				continue
+			}
+			put(int64(g.W))
+			put(int64(g.H))
+			h.Write(g.Pix)
+			put(int64(chars))
+			put(int64(rot))
+			h.Write([]byte(fmt.Sprintf("%v", invis)))
+			put(int64(len(runs)))
+			for _, r := range runs {
+				h.Write([]byte(r.Text))
+				for _, v := range r.Box {
+					put(v)
+				}
+				put(int64(len(r.Chars)))
+			}
+		}
+		var sum [32]byte
+		copy(sum[:], h.Sum(nil))
+		return sum, nil
+	}
+
+	want, err := render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const goroutines, rounds = 8, 2
+	var wg sync.WaitGroup
+	errs := make(chan string, goroutines)
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for r := 0; r < rounds; r++ {
+				got, err := render()
+				if err != nil {
+					errs <- err.Error()
+					return
+				}
+				if got != want {
+					errs <- fmt.Sprintf("render %x != sequential %x", got, want)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for e := range errs {
+		t.Error(e)
 	}
 }

@@ -126,6 +126,9 @@ them.
 `CallPDF` renders PDF bytes with the embedded PDFium engine and, in `"auto"`
 mode, reads each page's text layer where it is sound (the `CallText` path above)
 — upstream `mode="auto"`. The engine is embedded, nothing is installed.
+`CallPDF` is safe to call concurrently — it is fine to run `Pool.CallPDF` from
+many goroutines: each call renders on its own PDFium library instance (opened
+lazily, up to a small cap).
 
 ```go
 pages, err := ocr.CallPDF(pdfBytes, nil)                       // auto

@@ -3,6 +3,10 @@ package indra
 // cgo bridge to the embedded libpdfium.so. The library is loaded from an
 // anonymous memfd at runtime and every entry point is resolved with dlsym, so
 // nothing links against pdfium at build time and nothing is installed.
+//
+// PDFium's C API is not thread-safe (the API header allows only one call in
+// flight), so the pool hands each concurrent CallPDF its own loaded copy of the
+// library: separate copies have separate globals and render in parallel.
 
 /*
 #cgo LDFLAGS: -ldl
@@ -16,138 +20,158 @@ typedef void* FPDF_TEXTPAGE;
 typedef void* FPDF_BITMAP;
 typedef void* FPDF_PAGEOBJECT;
 
-static void* g_pdf = 0;
+// pdfium_api is one loaded copy of libpdfium: the dlopen handle plus every
+// entry point this file calls. PDFium's C API is not thread-safe — the API
+// header states that only one call may be in flight at a time — but its
+// process-wide globals live in the *loaded library image*, so two copies of the
+// same .so are two independent PDFium instances. The Go side lends one instance
+// per concurrent document (pdfiumInst), which is what makes concurrent
+// rendering safe without serializing it.
+typedef struct pdfium_api {
+	void* lib;
+	void (*InitLibrary)(void);
+	FPDF_DOCUMENT (*LoadMemDocument64)(const void*, size_t, const char*);
+	int (*GetPageCount)(FPDF_DOCUMENT);
+	FPDF_PAGE (*LoadPage)(FPDF_DOCUMENT, int);
+	float (*GetPageWidthF)(FPDF_PAGE);
+	float (*GetPageHeightF)(FPDF_PAGE);
+	FPDF_BITMAP (*Bitmap_CreateEx)(int, int, int, void*, int);
+	void (*Bitmap_FillRect)(FPDF_BITMAP, int, int, int, int, unsigned long);
+	void (*RenderPageBitmap)(FPDF_BITMAP, FPDF_PAGE, int, int, int, int, int, int);
+	void (*Bitmap_Destroy)(FPDF_BITMAP);
+	void (*ClosePage)(FPDF_PAGE);
+	void (*CloseDocument)(FPDF_DOCUMENT);
+	int (*PageToDevice)(FPDF_PAGE, int, int, int, int, int, double, double, int*, int*);
+	FPDF_TEXTPAGE (*Text_LoadPage)(FPDF_PAGE);
+	int (*Text_CountChars)(FPDF_TEXTPAGE);
+	unsigned int (*Text_GetUnicode)(FPDF_TEXTPAGE, int);
+	int (*Text_GetCharBox)(FPDF_TEXTPAGE, int, double*, double*, double*, double*);
+	float (*Text_GetCharAngle)(FPDF_TEXTPAGE, int);
+	void (*Text_ClosePage)(FPDF_TEXTPAGE);
+	int (*Page_CountObjects)(FPDF_PAGE);
+	FPDF_PAGEOBJECT (*Page_GetObject)(FPDF_PAGE, int);
+	int (*PageObj_GetType)(FPDF_PAGEOBJECT);
+	int (*TextObj_GetTextRenderMode)(FPDF_PAGEOBJECT);
+} pdfium_api;
 
-static int pdfium_open(const char* path) {
-	g_pdf = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
-	return g_pdf ? 0 : 1;
-}
-static int pdfium_loaded(void) { return g_pdf != 0; }
+#define PDFIUM_SYM(api, field, name)                    \
+	do {                                                \
+		*(void**)(&(api)->field) = dlsym((api)->lib, name); \
+		if (!(api)->field) {                            \
+			dlclose((api)->lib);                        \
+			free(api);                                  \
+			return 0;                                   \
+		}                                               \
+	} while (0)
 
-static void pdfium_initlib(void) {
-	static void (*f)(void);
-	if (!f) f = (void(*)(void))dlsym(g_pdf, "FPDF_InitLibrary");
-	f();
+// pdfium_api_open opens one copy of libpdfium at path, resolves every entry
+// point and initializes it, returning NULL on any failure. RTLD_LOCAL keeps
+// each copy's symbols out of the global namespace, so several copies coexist
+// as separate instances. dlsym resolves against the copy itself, so calls
+// through one instance never reach another's globals.
+static pdfium_api* pdfium_api_open(const char* path) {
+	void* lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+	if (!lib) return 0;
+	pdfium_api* api = (pdfium_api*)calloc(1, sizeof(pdfium_api));
+	if (!api) { dlclose(lib); return 0; }
+	api->lib = lib;
+	PDFIUM_SYM(api, InitLibrary, "FPDF_InitLibrary");
+	PDFIUM_SYM(api, LoadMemDocument64, "FPDF_LoadMemDocument64");
+	PDFIUM_SYM(api, GetPageCount, "FPDF_GetPageCount");
+	PDFIUM_SYM(api, LoadPage, "FPDF_LoadPage");
+	PDFIUM_SYM(api, GetPageWidthF, "FPDF_GetPageWidthF");
+	PDFIUM_SYM(api, GetPageHeightF, "FPDF_GetPageHeightF");
+	PDFIUM_SYM(api, Bitmap_CreateEx, "FPDFBitmap_CreateEx");
+	PDFIUM_SYM(api, Bitmap_FillRect, "FPDFBitmap_FillRect");
+	PDFIUM_SYM(api, RenderPageBitmap, "FPDF_RenderPageBitmap");
+	PDFIUM_SYM(api, Bitmap_Destroy, "FPDFBitmap_Destroy");
+	PDFIUM_SYM(api, ClosePage, "FPDF_ClosePage");
+	PDFIUM_SYM(api, CloseDocument, "FPDF_CloseDocument");
+	PDFIUM_SYM(api, PageToDevice, "FPDF_PageToDevice");
+	PDFIUM_SYM(api, Text_LoadPage, "FPDFText_LoadPage");
+	PDFIUM_SYM(api, Text_CountChars, "FPDFText_CountChars");
+	PDFIUM_SYM(api, Text_GetUnicode, "FPDFText_GetUnicode");
+	PDFIUM_SYM(api, Text_GetCharBox, "FPDFText_GetCharBox");
+	PDFIUM_SYM(api, Text_GetCharAngle, "FPDFText_GetCharAngle");
+	PDFIUM_SYM(api, Text_ClosePage, "FPDFText_ClosePage");
+	PDFIUM_SYM(api, Page_CountObjects, "FPDFPage_CountObjects");
+	PDFIUM_SYM(api, Page_GetObject, "FPDFPage_GetObject");
+	PDFIUM_SYM(api, PageObj_GetType, "FPDFPageObj_GetType");
+	PDFIUM_SYM(api, TextObj_GetTextRenderMode, "FPDFTextObj_GetTextRenderMode");
+	api->InitLibrary();
+	return api;
 }
-static void pdfium_destroylib(void) {
-	static void (*f)(void);
-	if (!f) f = (void(*)(void))dlsym(g_pdf, "FPDF_DestroyLibrary");
-	f();
+
+static FPDF_DOCUMENT pdfium_loadmem(pdfium_api* api, const void* p, size_t n, const char* pw) {
+	return api->LoadMemDocument64(p, n, pw);
 }
-static FPDF_DOCUMENT pdfium_loadmem(const void* p, size_t n, const char* pw) {
-	static FPDF_DOCUMENT (*f)(const void*, size_t, const char*);
-	if (!f) f = (void*(*)(const void*,size_t,const char*))dlsym(g_pdf, "FPDF_LoadMemDocument64");
-	return f(p, n, pw);
+static int pdfium_pagecount(pdfium_api* api, FPDF_DOCUMENT d) {
+	return api->GetPageCount(d);
 }
-static int pdfium_pagecount(FPDF_DOCUMENT d) {
-	static int (*f)(FPDF_DOCUMENT);
-	if (!f) f = (int(*)(void*))dlsym(g_pdf, "FPDF_GetPageCount");
-	return f(d);
+static FPDF_PAGE pdfium_loadpage(pdfium_api* api, FPDF_DOCUMENT d, int i) {
+	return api->LoadPage(d, i);
 }
-static FPDF_PAGE pdfium_loadpage(FPDF_DOCUMENT d, int i) {
-	static FPDF_PAGE (*f)(FPDF_DOCUMENT, int);
-	if (!f) f = (void*(*)(void*,int))dlsym(g_pdf, "FPDF_LoadPage");
-	return f(d, i);
+static float pdfium_pagewidth(pdfium_api* api, FPDF_PAGE p) {
+	return api->GetPageWidthF(p);
 }
-static float pdfium_pagewidth(FPDF_PAGE p) {
-	static float (*f)(FPDF_PAGE);
-	if (!f) f = (float(*)(void*))dlsym(g_pdf, "FPDF_GetPageWidthF");
-	return f(p);
+static float pdfium_pageheight(pdfium_api* api, FPDF_PAGE p) {
+	return api->GetPageHeightF(p);
 }
-static float pdfium_pageheight(FPDF_PAGE p) {
-	static float (*f)(FPDF_PAGE);
-	if (!f) f = (float(*)(void*))dlsym(g_pdf, "FPDF_GetPageHeightF");
-	return f(p);
+static FPDF_BITMAP pdfium_bitmap(pdfium_api* api, int w, int h, int fmt, void* buf, int stride) {
+	return api->Bitmap_CreateEx(w, h, fmt, buf, stride);
 }
-static FPDF_BITMAP pdfium_bitmap(int w, int h, int fmt, void* buf, int stride) {
-	static FPDF_BITMAP (*f)(int,int,int,void*,int);
-	if (!f) f = (void*(*)(int,int,int,void*,int))dlsym(g_pdf, "FPDFBitmap_CreateEx");
-	return f(w,h,fmt,buf,stride);
+static void pdfium_bitmap_fill(pdfium_api* api, FPDF_BITMAP b, int l, int t, int w, int h, unsigned long c) {
+	api->Bitmap_FillRect(b, l, t, w, h, c);
 }
-static void pdfium_bitmap_fill(FPDF_BITMAP b, int l, int t, int w, int h, unsigned long c) {
-	static void (*f)(FPDF_BITMAP,int,int,int,int,unsigned long);
-	if (!f) f = (void(*)(void*,int,int,int,int,unsigned long))dlsym(g_pdf, "FPDFBitmap_FillRect");
-	f(b,l,t,w,h,c);
+static void pdfium_render(pdfium_api* api, FPDF_BITMAP b, FPDF_PAGE p, int sx, int sy, int w, int h, int rot, int flags) {
+	api->RenderPageBitmap(b, p, sx, sy, w, h, rot, flags);
 }
-static void pdfium_render(FPDF_BITMAP b, FPDF_PAGE p, int sx, int sy, int w, int h, int rot, int flags) {
-	static void (*f)(FPDF_BITMAP,FPDF_PAGE,int,int,int,int,int,int);
-	if (!f) f = (void(*)(void*,void*,int,int,int,int,int,int))dlsym(g_pdf, "FPDF_RenderPageBitmap");
-	f(b,p,sx,sy,w,h,rot,flags);
+static void pdfium_bitmap_destroy(pdfium_api* api, FPDF_BITMAP b) {
+	api->Bitmap_Destroy(b);
 }
-static void pdfium_bitmap_destroy(FPDF_BITMAP b) {
-	static void (*f)(FPDF_BITMAP);
-	if (!f) f = (void(*)(void*))dlsym(g_pdf, "FPDFBitmap_Destroy");
-	f(b);
+static void pdfium_closepage(pdfium_api* api, FPDF_PAGE p) {
+	api->ClosePage(p);
 }
-static void pdfium_closepage(FPDF_PAGE p) {
-	static void (*f)(FPDF_PAGE);
-	if (!f) f = (void(*)(void*))dlsym(g_pdf, "FPDF_ClosePage");
-	f(p);
+static void pdfium_closedoc(pdfium_api* api, FPDF_DOCUMENT d) {
+	api->CloseDocument(d);
 }
-static void pdfium_closedoc(FPDF_DOCUMENT d) {
-	static void (*f)(FPDF_DOCUMENT);
-	if (!f) f = (void(*)(void*))dlsym(g_pdf, "FPDF_CloseDocument");
-	f(d);
-}
-static int pdfium_pagetodevice(FPDF_PAGE p, int sx, int sy, int w, int h, int rot,
+static int pdfium_pagetodevice(pdfium_api* api, FPDF_PAGE p, int sx, int sy, int w, int h, int rot,
                                double px, double py, int* dx, int* dy) {
-	static int (*f)(FPDF_PAGE,int,int,int,int,int,double,double,int*,int*);
-	if (!f) f = (int(*)(void*,int,int,int,int,int,double,double,int*,int*))dlsym(g_pdf, "FPDF_PageToDevice");
-	return f(p,sx,sy,w,h,rot,px,py,dx,dy);
+	return api->PageToDevice(p, sx, sy, w, h, rot, px, py, dx, dy);
 }
 
 // text page
-static FPDF_TEXTPAGE pdfium_text_load(FPDF_PAGE p) {
-	static FPDF_TEXTPAGE (*f)(FPDF_PAGE);
-	if (!f) f = (void*(*)(void*))dlsym(g_pdf, "FPDFText_LoadPage");
-	return f(p);
+static FPDF_TEXTPAGE pdfium_text_load(pdfium_api* api, FPDF_PAGE p) {
+	return api->Text_LoadPage(p);
 }
-static int pdfium_text_count(FPDF_TEXTPAGE tp) {
-	static int (*f)(FPDF_TEXTPAGE);
-	if (!f) f = (int(*)(void*))dlsym(g_pdf, "FPDFText_CountChars");
-	return f(tp);
+static int pdfium_text_count(pdfium_api* api, FPDF_TEXTPAGE tp) {
+	return api->Text_CountChars(tp);
 }
-static unsigned int pdfium_text_unicode(FPDF_TEXTPAGE tp, int i) {
-	static unsigned int (*f)(FPDF_TEXTPAGE,int);
-	if (!f) f = (unsigned int(*)(void*,int))dlsym(g_pdf, "FPDFText_GetUnicode");
-	return f(tp,i);
+static unsigned int pdfium_text_unicode(pdfium_api* api, FPDF_TEXTPAGE tp, int i) {
+	return api->Text_GetUnicode(tp, i);
 }
-static int pdfium_text_charbox(FPDF_TEXTPAGE tp, int i, double* l, double* r, double* b, double* t) {
-	static int (*f)(FPDF_TEXTPAGE,int,double*,double*,double*,double*);
-	if (!f) f = (int(*)(void*,int,double*,double*,double*,double*))dlsym(g_pdf, "FPDFText_GetCharBox");
-	return f(tp,i,l,r,b,t);
+static int pdfium_text_charbox(pdfium_api* api, FPDF_TEXTPAGE tp, int i, double* l, double* r, double* b, double* t) {
+	return api->Text_GetCharBox(tp, i, l, r, b, t);
 }
-static float pdfium_text_charangle(FPDF_TEXTPAGE tp, int i) {
-	static float (*f)(FPDF_TEXTPAGE,int);
-	if (!f) f = (float(*)(void*,int))dlsym(g_pdf, "FPDFText_GetCharAngle");
-	return f(tp,i);
+static float pdfium_text_charangle(pdfium_api* api, FPDF_TEXTPAGE tp, int i) {
+	return api->Text_GetCharAngle(tp, i);
 }
-static void pdfium_text_close(FPDF_TEXTPAGE tp) {
-	static void (*f)(FPDF_TEXTPAGE);
-	if (!f) f = (void(*)(void*))dlsym(g_pdf, "FPDFText_ClosePage");
-	f(tp);
+static void pdfium_text_close(pdfium_api* api, FPDF_TEXTPAGE tp) {
+	api->Text_ClosePage(tp);
 }
 
 // page objects (invisible-text check)
-static int pdfium_page_objects(FPDF_PAGE p) {
-	static int (*f)(FPDF_PAGE);
-	if (!f) f = (int(*)(void*))dlsym(g_pdf, "FPDFPage_CountObjects");
-	return f(p);
+static int pdfium_page_objects(pdfium_api* api, FPDF_PAGE p) {
+	return api->Page_CountObjects(p);
 }
-static FPDF_PAGEOBJECT pdfium_page_object(FPDF_PAGE p, int i) {
-	static FPDF_PAGEOBJECT (*f)(FPDF_PAGE,int);
-	if (!f) f = (void*(*)(void*,int))dlsym(g_pdf, "FPDFPage_GetObject");
-	return f(p,i);
+static FPDF_PAGEOBJECT pdfium_page_object(pdfium_api* api, FPDF_PAGE p, int i) {
+	return api->Page_GetObject(p, i);
 }
-static int pdfium_objtype(FPDF_PAGEOBJECT o) {
-	static int (*f)(FPDF_PAGEOBJECT);
-	if (!f) f = (int(*)(void*))dlsym(g_pdf, "FPDFPageObj_GetType");
-	return f(o);
+static int pdfium_objtype(pdfium_api* api, FPDF_PAGEOBJECT o) {
+	return api->PageObj_GetType(o);
 }
-static int pdfium_textobj_rendermode(FPDF_PAGEOBJECT o) {
-	static int (*f)(FPDF_PAGEOBJECT);
-	if (!f) f = (int(*)(void*))dlsym(g_pdf, "FPDFTextObj_GetTextRenderMode");
-	return f(o);
+static int pdfium_textobj_rendermode(pdfium_api* api, FPDF_PAGEOBJECT o) {
+	return api->TextObj_GetTextRenderMode(o);
 }
 */
 import "C"
@@ -155,6 +179,7 @@ import "C"
 import (
 	"fmt"
 	"math"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -168,62 +193,147 @@ const pdfPageObjText = 1
 const pdfTextRenderInvisible = 3
 
 var (
-	pdfiumOnce sync.Once
-	pdfiumErr  error
+	pdfiumBytesOnce sync.Once
+	pdfiumBytes     []byte
+	pdfiumBytesErr  error
 )
 
-// loadPDFium loads the embedded libpdfium.so via memfd and opens it. Safe to
-// call repeatedly.
-func loadPDFium() error {
-	pdfiumOnce.Do(func() {
-		if sysMemfdCreate < 0 {
-			pdfiumErr = fmt.Errorf("indra: pdfium needs linux/amd64; not available")
-			return
-		}
-		data, err := libFS.ReadFile("lib/libpdfium.so")
-		if err != nil {
-			pdfiumErr = fmt.Errorf("indra: embedded libpdfium: %w", err)
-			return
-		}
-		name := append([]byte("libpdfium.so"), 0)
-		fd, _, errno := syscall.Syscall(uintptr(sysMemfdCreate),
-			uintptr(unsafe.Pointer(&name[0])), 0x0001 /* MFD_CLOEXEC */, 0)
-		if errno != 0 {
-			pdfiumErr = fmt.Errorf("indra: memfd libpdfium: %w", errno)
-			return
-		}
-		if err := writeAll(int(fd), data); err != nil {
-			pdfiumErr = err
-			return
-		}
-		memfdFDs = append(memfdFDs, fd)
-		cpath := C.CString("/proc/self/fd/" + itoa(int(fd)))
-		defer C.free(unsafe.Pointer(cpath))
-		if C.pdfium_open(cpath) != 0 {
-			pdfiumErr = fmt.Errorf("indra: dlopen libpdfium failed")
-			return
-		}
-		C.pdfium_initlib()
+// pdfiumLibBytes reads the embedded libpdfium.so once.
+func pdfiumLibBytes() ([]byte, error) {
+	pdfiumBytesOnce.Do(func() {
+		pdfiumBytes, pdfiumBytesErr = libFS.ReadFile("lib/libpdfium.so")
 	})
-	return pdfiumErr
+	if pdfiumBytesErr != nil {
+		return nil, fmt.Errorf("indra: embedded libpdfium: %w", pdfiumBytesErr)
+	}
+	return pdfiumBytes, nil
+}
+
+// pdfiumInst is one loaded copy of libpdfium, with exclusive use until it is
+// released back to the pool. PDFium is not thread-safe: no entry point may run
+// concurrently with another on the same instance. Its globals belong to the
+// loaded library image, so separate copies — a separate memfd and dlopen each —
+// are independent PDFium instances, and renditions on distinct instances run in
+// parallel without sharing state.
+type pdfiumInst struct {
+	api *C.pdfium_api
+}
+
+// pdfiumMaxInstances caps how many copies coexist. Rendering is only a small
+// share of a PDF page's cost (the recognizer dominates), so a handful of
+// renderers already feed every worker; each copy also costs a library mapping
+// and its own caches, so one per worker would only add memory.
+func pdfiumMaxInstances() int {
+	n := runtime.NumCPU()
+	if n > 8 {
+		n = 8
+	}
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// pdfiumPool hands each concurrent CallPDF its own pdfiumInst. Instances are
+// opened lazily and only while fewer than pdfiumMaxInstances exist and none is
+// idle, so a single-threaded caller opens just one.
+type pdfiumPool struct {
+	mu   sync.Mutex
+	cond *sync.Cond
+	idle []*pdfiumInst
+	n    int
+}
+
+var pdfiumInsts = newPDFiumPool()
+
+func newPDFiumPool() *pdfiumPool {
+	p := &pdfiumPool{}
+	p.cond = sync.NewCond(&p.mu)
+	return p
+}
+
+// acquire returns an instance with exclusive use until release.
+func (p *pdfiumPool) acquire() (*pdfiumInst, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for {
+		if n := len(p.idle); n > 0 {
+			inst := p.idle[n-1]
+			p.idle = p.idle[:n-1]
+			return inst, nil
+		}
+		if p.n < pdfiumMaxInstances() {
+			p.n++ // reserve the slot while the copy is opened
+			p.mu.Unlock()
+			inst, err := newPDFiumInst()
+			p.mu.Lock()
+			if err != nil {
+				p.n--
+				p.cond.Broadcast()
+				return nil, err
+			}
+			return inst, nil
+		}
+		p.cond.Wait()
+	}
+}
+
+func (p *pdfiumPool) release(inst *pdfiumInst) {
+	p.mu.Lock()
+	p.idle = append(p.idle, inst)
+	p.mu.Unlock()
+	p.cond.Signal()
+}
+
+// newPDFiumInst opens one independent copy of libpdfium from an anonymous
+// memfd. dlopen deduplicates a library by its inode, so every instance gets its
+// own copy of the bytes — that private copy is what isolates the instances'
+// globals. The fd stays open for the process lifetime (like memfdFDs): the
+// mapping keeps the bytes alive.
+func newPDFiumInst() (*pdfiumInst, error) {
+	if sysMemfdCreate < 0 {
+		return nil, fmt.Errorf("indra: pdfium needs linux/amd64; not available")
+	}
+	data, err := pdfiumLibBytes()
+	if err != nil {
+		return nil, err
+	}
+	name := append([]byte("libpdfium.so"), 0)
+	fd, _, errno := syscall.Syscall(uintptr(sysMemfdCreate),
+		uintptr(unsafe.Pointer(&name[0])), 0x0001 /* MFD_CLOEXEC */, 0)
+	if errno != 0 {
+		return nil, fmt.Errorf("indra: memfd libpdfium: %w", errno)
+	}
+	if err := writeAll(int(fd), data); err != nil {
+		syscall.Close(int(fd))
+		return nil, err
+	}
+	cpath := C.CString("/proc/self/fd/" + itoa(int(fd)))
+	defer C.free(unsafe.Pointer(cpath))
+	api := C.pdfium_api_open(cpath)
+	if api == nil {
+		syscall.Close(int(fd))
+		return nil, fmt.Errorf("indra: dlopen libpdfium failed")
+	}
+	return &pdfiumInst{api: api}, nil
 }
 
 // --- Go wrappers over the C shims (only this cgo file can see them). ---
 
-// pdfOpen loads a PDF from memory and returns (document, buffer) — the caller
-// must pdfClose both. FPDF_LoadMemDocument64 does NOT copy the bytes: pdfium
+// open loads a PDF from memory and returns (document, buffer) — the caller
+// must close both. FPDF_LoadMemDocument64 does NOT copy the bytes: pdfium
 // reads them for the document's lifetime, and handing it a Go heap pointer
 // violates the cgo pointer rules (the GC may free or move it while pages are
 // still being rendered). So the bytes are copied into C memory here and freed by
-// pdfClose.
-func pdfOpen(data []byte) (unsafe.Pointer, unsafe.Pointer, error) {
+// close.
+func (inst *pdfiumInst) open(data []byte) (unsafe.Pointer, unsafe.Pointer, error) {
 	if len(data) == 0 {
 		return nil, nil, fmt.Errorf("indra: empty pdf")
 	}
 	buf := C.CBytes(data)
 	cs := C.CString("")
 	defer C.free(unsafe.Pointer(cs))
-	doc := unsafe.Pointer(C.pdfium_loadmem(buf, C.size_t(len(data)), cs))
+	doc := unsafe.Pointer(C.pdfium_loadmem(inst.api, buf, C.size_t(len(data)), cs))
 	if doc == nil {
 		C.free(buf)
 		return nil, nil, fmt.Errorf("indra: pdfium could not open the document")
@@ -231,41 +341,42 @@ func pdfOpen(data []byte) (unsafe.Pointer, unsafe.Pointer, error) {
 	return doc, buf, nil
 }
 
-func pdfClose(doc, buf unsafe.Pointer) {
+func (inst *pdfiumInst) close(doc, buf unsafe.Pointer) {
 	if doc != nil {
-		C.pdfium_closedoc(C.FPDF_DOCUMENT(doc))
+		C.pdfium_closedoc(inst.api, C.FPDF_DOCUMENT(doc))
 	}
 	if buf != nil {
 		C.free(buf)
 	}
 }
-func pdfPageCount(doc unsafe.Pointer) int {
-	return int(C.pdfium_pagecount(C.FPDF_DOCUMENT(doc)))
+
+func (inst *pdfiumInst) pageCount(doc unsafe.Pointer) int {
+	return int(C.pdfium_pagecount(inst.api, C.FPDF_DOCUMENT(doc)))
 }
 
-// pdfRenderPage renders page index at scale (px/pt) to grayscale, returning the
+// renderPage renders page index at scale (px/pt) to grayscale, returning the
 // image and the page size in points.
-func pdfRenderPage(doc unsafe.Pointer, index int, scale float64) (*Gray, float64, float64, bool) {
-	page := C.pdfium_loadpage(C.FPDF_DOCUMENT(doc), C.int(index))
+func (inst *pdfiumInst) renderPage(doc unsafe.Pointer, index int, scale float64) (*Gray, float64, float64, bool) {
+	page := C.pdfium_loadpage(inst.api, C.FPDF_DOCUMENT(doc), C.int(index))
 	if page == nil {
 		return nil, 0, 0, false
 	}
-	defer C.pdfium_closepage(page)
-	pw := float64(C.pdfium_pagewidth(page))
-	ph := float64(C.pdfium_pageheight(page))
+	defer C.pdfium_closepage(inst.api, page)
+	pw := float64(C.pdfium_pagewidth(inst.api, page))
+	ph := float64(C.pdfium_pageheight(inst.api, page))
 	w := int(pw*scale + 0.5)
 	h := int(ph*scale + 0.5)
 	if w < 1 || h < 1 {
 		return nil, pw, ph, false
 	}
 	buf := make([]byte, w*h*4)
-	bmp := C.pdfium_bitmap(C.int(w), C.int(h), 4 /*BGRA*/, unsafe.Pointer(&buf[0]), C.int(w*4))
+	bmp := C.pdfium_bitmap(inst.api, C.int(w), C.int(h), 4 /*BGRA*/, unsafe.Pointer(&buf[0]), C.int(w*4))
 	if bmp == nil {
 		return nil, pw, ph, false
 	}
-	defer C.pdfium_bitmap_destroy(bmp)
-	C.pdfium_bitmap_fill(bmp, 0, 0, C.int(w), C.int(h), 0xFFFFFFFF)
-	C.pdfium_render(bmp, page, 0, 0, C.int(w), C.int(h), 0, 0)
+	defer C.pdfium_bitmap_destroy(inst.api, bmp)
+	C.pdfium_bitmap_fill(inst.api, bmp, 0, 0, C.int(w), C.int(h), 0xFFFFFFFF)
+	C.pdfium_render(inst.api, bmp, page, 0, 0, C.int(w), C.int(h), 0, 0)
 	px := make([]uint8, w*h)
 	for i := 0; i < w*h; i++ {
 		px[i] = uint8((299*int(buf[i*4+2]) + 587*int(buf[i*4+1]) + 114*int(buf[i*4])) / 1000)
@@ -273,14 +384,14 @@ func pdfRenderPage(doc unsafe.Pointer, index int, scale float64) (*Gray, float64
 	return &Gray{Pix: px, W: w, H: h}, pw, ph, true
 }
 
-// pdfDeviceAffine maps PDF page space (points) to the rendered frame (top-left
+// deviceAffine maps PDF page space (points) to the rendered frame (top-left
 // origin, points), mirroring pypdfium2's FPDF_PageToDevice use in textlayer.py.
 // Returns [A00 A01 A02 A10 A11 A12]: xf = A00*x + A01*y + A02, yf = A10*x + A11*y + A12.
-func pdfDeviceAffine(page C.FPDF_PAGE, w, h float64) [6]float64 {
+func (inst *pdfiumInst) deviceAffine(page C.FPDF_PAGE, w, h float64) [6]float64 {
 	const s = 1000.0
 	dev := func(x, y float64) (float64, float64) {
 		var dx, dy C.int
-		C.pdfium_pagetodevice(page, 0, 0, C.int(w*s+0.5), C.int(h*s+0.5), 0,
+		C.pdfium_pagetodevice(inst.api, page, 0, 0, C.int(w*s+0.5), C.int(h*s+0.5), 0,
 			C.double(x), C.double(y), &dx, &dy)
 		return float64(dx) / s, float64(dy) / s
 	}
@@ -290,68 +401,68 @@ func pdfDeviceAffine(page C.FPDF_PAGE, w, h float64) [6]float64 {
 	return [6]float64{exx - ox, eyx - ox, ox, exy - oy, eyy - oy, oy}
 }
 
-func pdfInvisibleFrac(page C.FPDF_PAGE) float64 {
-	n := int(C.pdfium_page_objects(page))
+func (inst *pdfiumInst) invisibleFrac(page C.FPDF_PAGE) float64 {
+	n := int(C.pdfium_page_objects(inst.api, page))
 	if n == 0 {
 		return 0
 	}
 	inv := 0
 	for i := 0; i < n; i++ {
-		obj := C.pdfium_page_object(page, C.int(i))
+		obj := C.pdfium_page_object(inst.api, page, C.int(i))
 		if obj == nil {
 			continue
 		}
-		if int(C.pdfium_objtype(obj)) == pdfPageObjText &&
-			int(C.pdfium_textobj_rendermode(obj)) == pdfTextRenderInvisible {
+		if int(C.pdfium_objtype(inst.api, obj)) == pdfPageObjText &&
+			int(C.pdfium_textobj_rendermode(inst.api, obj)) == pdfTextRenderInvisible {
 			inv++
 		}
 	}
 	return float64(inv) / float64(n)
 }
 
-// pdfProcess renders page index at scale and extracts its text-layer runs (boxes
+// process renders page index at scale and extracts its text-layer runs (boxes
 // in rendered pixels), the character stats and the invisible-text fraction. It
 // mirrors textlayer.extract_runs / read_text_layer.
-func pdfProcess(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun, int, int, float64, bool) {
-	page := C.pdfium_loadpage(C.FPDF_DOCUMENT(doc), C.int(index))
+func (inst *pdfiumInst) process(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun, int, int, float64, bool) {
+	page := C.pdfium_loadpage(inst.api, C.FPDF_DOCUMENT(doc), C.int(index))
 	if page == nil {
 		return nil, nil, 0, 0, 0, false
 	}
-	defer C.pdfium_closepage(page)
-	pw := float64(C.pdfium_pagewidth(page))
-	ph := float64(C.pdfium_pageheight(page))
+	defer C.pdfium_closepage(inst.api, page)
+	pw := float64(C.pdfium_pagewidth(inst.api, page))
+	ph := float64(C.pdfium_pageheight(inst.api, page))
 	w := int(pw*scale + 0.5)
 	h := int(ph*scale + 0.5)
 	if w < 1 || h < 1 {
 		return nil, nil, 0, 0, 0, false
 	}
 	buf := make([]byte, w*h*4)
-	bmp := C.pdfium_bitmap(C.int(w), C.int(h), 4, unsafe.Pointer(&buf[0]), C.int(w*4))
+	bmp := C.pdfium_bitmap(inst.api, C.int(w), C.int(h), 4, unsafe.Pointer(&buf[0]), C.int(w*4))
 	if bmp == nil {
 		return nil, nil, 0, 0, 0, false
 	}
-	C.pdfium_bitmap_fill(bmp, 0, 0, C.int(w), C.int(h), 0xFFFFFFFF)
-	C.pdfium_render(bmp, page, 0, 0, C.int(w), C.int(h), 0, 0)
-	C.pdfium_bitmap_destroy(bmp)
+	C.pdfium_bitmap_fill(inst.api, bmp, 0, 0, C.int(w), C.int(h), 0xFFFFFFFF)
+	C.pdfium_render(inst.api, bmp, page, 0, 0, C.int(w), C.int(h), 0, 0)
+	C.pdfium_bitmap_destroy(inst.api, bmp)
 	px := make([]uint8, w*h)
 	for i := 0; i < w*h; i++ {
 		px[i] = uint8((299*int(buf[i*4+2]) + 587*int(buf[i*4+1]) + 114*int(buf[i*4])) / 1000)
 	}
 	g := &Gray{Pix: px, W: w, H: h}
 
-	invisible := pdfInvisibleFrac(page)
-	A := pdfDeviceAffine(page, pw, ph)
-	tp := C.pdfium_text_load(page)
+	invisible := inst.invisibleFrac(page)
+	A := inst.deviceAffine(page, pw, ph)
+	tp := C.pdfium_text_load(inst.api, page)
 	if tp == nil {
 		return g, nil, 0, 0, invisible, true
 	}
-	defer C.pdfium_text_close(tp)
-	nc := int(C.pdfium_text_count(tp))
+	defer C.pdfium_text_close(inst.api, tp)
+	nc := int(C.pdfium_text_count(inst.api, tp))
 	var cs []TextChar
 	var breaks []int
 	nChars, nRot, nBad := 0, 0, 0
 	for i := 0; i < nc; i++ {
-		c := rune(C.pdfium_text_unicode(tp, C.int(i)))
+		c := rune(C.pdfium_text_unicode(inst.api, tp, C.int(i)))
 		if c == '\r' || c == '\n' {
 			breaks = append(breaks, len(cs))
 			continue
@@ -362,7 +473,7 @@ func pdfProcess(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun,
 		if !unicode.IsSpace(c) {
 			nChars++
 			nBad += badCharCount(string(c))
-			a := float64(C.pdfium_text_charangle(tp, C.int(i)))
+			a := float64(C.pdfium_text_charangle(inst.api, tp, C.int(i)))
 			d0 := A[0]*math.Cos(a) + A[1]*math.Sin(a)
 			d1 := A[3]*math.Cos(a) + A[4]*math.Sin(a)
 			if !(d0 > 0 && math.Abs(d1) <= 1e-3*math.Max(math.Abs(d0), 1e-9)) {
@@ -372,7 +483,7 @@ func pdfProcess(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun,
 			}
 		}
 		var bl, br, bb, bt C.double
-		C.pdfium_text_charbox(tp, C.int(i), &bl, &br, &bb, &bt)
+		C.pdfium_text_charbox(inst.api, tp, C.int(i), &bl, &br, &bb, &bt)
 		// map the 4 corners of (l,b,r,t) through the affine, then to pixels
 		var xs = [4]float64{float64(bl), float64(br), float64(bl), float64(br)}
 		var ys = [4]float64{float64(bb), float64(bb), float64(bt), float64(bt)}
