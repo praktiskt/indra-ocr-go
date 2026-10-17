@@ -355,6 +355,52 @@ delta / baseline.
 
 ## Rejected (do not re-run without new data)
 
+### Det input shape bucketing (coarser than /32) — no churn to fix
+
+- **Hypothesis:** every page produces a distinct `det.onnx` input shape
+  (`pageToInput` pads the resized page to a /32 multiple), and ORT builds a
+  per-shape execution plan, so rounding the padded dims to a coarser grid
+  (/64, /128) would reuse plans and cut det (35% of the pipeline) time.
+- **Census kills it:** pages cluster into very few shapes. Over the whole
+  FUNSD corpus (199 pages) there are **4** distinct det shapes at /32; over the
+  full OPB (2937 pages) **34** at /32, collapsing to 19 (/64), 10 (/128),
+  5 (/256). Each shape is reused ~86x on OPB, so the per-shape setup is
+  amortized to nothing.
+- **Direct timing (1 thread, det only):** repeating one warm shape vs
+  alternating two warm shapes of equal area differs by **-0.4%** (noise). Cold
+  (first-encounter) vs warm per shape over the 34 OPB shapes: **-3.7 ms/shape**
+  (negative = thermal drift) — i.e. **no measurable per-shape plan-build cost**
+  at all. ORT's plan/kernel selection for a new shape is cheap here.
+- **Verdict:** nothing to gain; bucketing to /128 would change det input
+  padding (a numeric change needing the guard + gauntlet) to save ~24 one-time
+  plan builds over 2937 pages. Rejected. `pageToInput` stays at /32.
+
+### Reuse output tensors across `Run` — bit-identical, but throughput/RSS neutral
+
+- **What was tried:** every `runDet`/`recBatch`/`runScript`/`runOrder` did
+  `ort.NewEmptyTensor` per call, i.e. a fresh `make([]T,n)` (zeroed) for the
+  output, then GC. det output is ~3 MB/page (x2 with the adaptive pass), the
+  padded rec batch up to ~5 MB. Held one reusable output tensor per
+  (session, output), recreated only when the shape changes. ORT writes every
+  element of a fully-defined output, so reuse is **bit-identical**.
+- **Correctness:** `TestCallAllMatchesCall` passes, `-race` clean, FUNSD guard
+  recall **0.9134** (== shipped). No reader touches `ids`/`conf` beyond
+  `lengths`; `decodeDet` consumes the det buffer before the adaptive re-run;
+  `runOrder` results are copied out by `reshape2`.
+- **Speed (FUNSD, 199 pages, 8 workers x 1 thread, best-of-5):**
+  - baseline: **18.98 pages/s**, peak RSS 2139 MB
+  - reuse: **19.07 pages/s**, peak RSS 2176 MB
+  - **+0.5% / +1.7% — both within run-to-run noise** (rep spread 18.2-19.1).
+- **Why neutral:** this box is memory/power-saturated (see "Throughput
+  ceiling"), and the saved allocation is recycled by the Go allocator, so the
+  zeroing lands on cache-hot memory — no reduction in DRAM traffic. ~3-6 MB of
+  alloc/zero per page at ~19 p/s is ~0.2% of memory bandwidth. The log's rule
+  is "neutral + faster = accept"; this is neutral + neutral.
+- **Verdict:** rejected (adds ~60 lines of reuse machinery for no measured
+  gain). Untested lever if the target ever becomes a high-core-count or
+  bandwidth-bound-elsewhere machine: re-measure there, where the binding
+  resource differs.
+
 ### `pdf_order` (keep the PDF content order) — neutral, regresses multi-column
 
 - **What was ported** (faithful to upstream `textlayer.order_backtracks` +
