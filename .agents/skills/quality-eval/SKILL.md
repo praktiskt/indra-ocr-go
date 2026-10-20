@@ -44,8 +44,9 @@ EOF
 INDRA_CORPUS_DIR=/path/to/corpus go test -run TestCorpusRecall -count=1 -v
 ```
 
-Pass bar: word recall >= 0.80 (reference ~0.86 at v0.8.0, threads=2).
-Below bar = real regression, not refactor noise. ~16s runtime.
+Pass bar: word recall >= 0.80 (reference ~0.86 at v0.8.0; **v1.1.0**: FP32
+0.8658, shipped int8 0.8685, threads=2). Below bar = real regression, not
+refactor noise. ~16s runtime.
 
 ## Reading order (the guard is blind to it)
 
@@ -109,6 +110,13 @@ extract (re-downloadable); the scripts are the record.
 
 GT words: sroie `ocr[].text`, cord `json.loads(raw_data)["ocr_words"]`
 (literal_eval), xfund `words`, synth copied from FUNSD gt.
+
+**v1.1 scripts (rtl/world) are not yet covered here.** xfund gives zh/ja
+(`rec_cjk`) but not Arabic/Hebrew (`rec_rtl`) or Greek/Cyrillic/Devanagari/
+Armenian (`rec_world`). When changing a group recognizer, add a scratch subset
+of OPB `multiling_finepdfs` pages (`_Arab_`/`_Hebr_` for rtl; `_Grek_`/`_Cyrl_`/
+`_Deva_`/`_Armn_`/`_Beng_` for world) and score it the same way — this is the
+guard `rec_cjk`/`rec_rtl`/`rec_world` int8 needs before it can ship.
 
 Scorer pattern (throwaway `hard_probe_test.go`, `HARD_DIR` env, never commit):
 8 workers x `NewOCR(2)`, per page {recall, lines, empty, ms, rotation, skew},

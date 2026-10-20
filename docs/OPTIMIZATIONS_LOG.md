@@ -18,6 +18,61 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### Upstream model upgrade to indra v1.1.0 — `v0.29.0`
+
+- **What:** the port tracks upstream `indra-ocr` **v1.1.0** (package 1.1.2).
+  `models/` is the v1.1.0 tag: `det.onnx` retrained for handwriting (same size,
+  3 channels — picture path dormant upstream), a 4-class `script.onnx` router
+  (`script_groups = [base, cjk, rtl, world]`), three new script-group
+  recognizers (`rec_cjk`/`rec_rtl`/`rec_world`, `rec.onnx` retrained), a 5-class
+  `orient.onnx` (class 4 = vertical columns), and three n-gram LMs (`lm.npz`
+  order-5, `lm_cjk.npz` order-3, `lm_world.npz` order-4; no `lm_rtl`).
+- **Pipeline ports (all in this commit range):**
+  - `rec_window = 3`: the base recognizer reads a 96 px window (the line band
+    plus a band above/below); group recognizers read the 32 px band. Light-on-dark
+    is decided once per box (`lineDarkness`).
+  - **script routing + LM beam search:** `script.onnx` picks a group per line
+    (probability over `RouteSure = 0.95`); a line the router is unsure of is
+    read by base *as well* and the more confident reading wins (base first, so it
+    wins ties). Lines with `0.5 <= conf < gate` are re-read by the CTC prefix
+    beam search over the LM (`gate` 0.9 base / 0.95 cjk+world, `alpha` 0.5 / 0.2,
+    `beta` 1.5, beam 8).
+  - **orientation/deskew up to 45°** (`upright.go`, replaces `skew.go`/
+    `skew_py.go`): preview 1600, coarse ±45° step-2, then 0.5° and 0.1° refine;
+    5-class orient (vertical → `rot90` CCW read as CJK columns). Vertical pages
+    assemble via XY-cut blocks (the order model saw no vertical pages).
+  - **`rtl.go`** (`rtl.py`): a bidi subset for Arabic/Hebrew — visual↔logical
+    `flip`, mirroring, presentation-form and tatweel normalisation. `lm.go`
+    (`lm.py`): npz/npy reader + `ngramLM` + the beam search; the three LMs are
+    embedded as-is (~46 MB) and parsed lazily, one shared copy per process.
+  - **assembly:** `tidy_lines` (leader/marker rules), page base direction from
+    the strong-character counts, `split_line` at wide gaps, vertical `xyCut`.
+  - **PDF text layer:** the whole v1.1 phase (quarter turns, `/Rotate`,
+    vertical, visual-RTL, legacy-font check, sideways runs) — see
+    `DEVIATIONS.md`.
+- **Quantization:** base `rec.onnx` mixed-precision int8 (raw graph, QDQ,
+  per-channel `QUInt8`/`QInt8`, MinMax, asymmetric, stem+blocks 0-1 FP32) **and
+  `order.onnx` dynamic int8 + `tab`-strip**. The new `/rec/context` module breaks
+  the Conv1d→Conv2d NCHWc promotion (`tools/quantize_rec.py --no-promote`), so
+  the base build is the raw graph; it is still faster than FP32.
+  `rec_cjk`/`rec_rtl`/`rec_world` ship **FP32**.
+- **Evidence (this machine, FUNSD 199-page guard, threads=2):** FP32 v1.1.0
+  `rec` **0.8658**; int8 `rec` **0.8685** (neutral, +0.27pp is within noise).
+  Reading order (order.onnx int8 vs FP32, same rec/det): **148/199 pages
+  identical**, mean Kendall tau **0.9959**, 2 pages < 0.9.
+- **Group recognizers stay FP32 (why):** int8 needs per-script calibration.
+  Calibrating `rec_cjk` on Latin (FUNSD) crops confabulates CJK
+  (`chinese_essay` char-sim 0.62 vs FP32); a CJK-calibrated build recovers
+  (`chinese_essay` 0.98, OPB `cmn_Hani` 0.987, `jpn_Jpan` 0.975). But
+  `rec_world`/`rec_rtl` int8 regressed even with per-script calibration on 27
+  real OPB multilingual pages (mean char-sim 0.83; Bengali/Hebrew/Armenian pages
+  < 0.6), so they ship FP32 until a per-script guard exists. `tools/calib` gains
+  `-window` (band crops for group recs) and `tools/quantize_rec.py` gains
+  `--rec-height` (96 for the windowed base rec) so the work can be redone.
+- **Bug fix (found by the guard):** `assemble` passed `tidy_lines` the
+  *pre-split* boxes with the *post-split* recs (panic on any page whose line
+  split at a wide gap). Fixed to pass the split boxes.
+
 ### PDFium concurrency: one library instance per concurrent document — `v0.28.1`
 
 - **Bug:** PDFium's C API is not thread-safe — the API header allows only one

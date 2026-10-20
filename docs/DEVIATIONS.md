@@ -62,28 +62,63 @@ method in [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-
   0/88 pages differ). Not shipped. See the Rejected section of
   `OPTIMIZATIONS_LOG.md`.
 
-## `mode="text"` is ported; the broken-font-map turn nuance is not
+## PDF text layer: ported fully (v1.1)
 
 - `PDFOptions.Mode` is `"auto"` / `"ocr"` / `"text"`. `"text"` uses the layer
   even when the trust checks fail (upstream `mode="text"`), and in `"auto"` an
   untrusted layer is used when the recognizer cannot read its script and the
   font map is not broken (upstream `document.pdf_page`'s `unreadable` rule).
-  See `OPTIMIZATIONS_LOG.md` (`v0.27.0`).
-- **Not ported:** when an untrusted layer's font map is broken and its glyphs are
-  mostly upright, upstream skips orientation (the map still places glyphs, so the
-  page's uprightness is known); Go always runs `Upright`. Also, upstream's text
-  page does not run orientation/deskew at all, while the Go text path does
-  (`textPage` calls `Upright`, a no-op on an upright render).
+  `PDFOptions.NoImageOCR` mirrors `image_ocr=False` (drop detected lines the
+  layer does not cover instead of OCRing them).
+- The v1.1 text-layer phase is ported whole: per-character quarter turns
+  (`textlayer._quarter` over the page-to-device affine, `L = F·A·F`), the
+  `/Rotate` reset branch (`FPDFPage_Get/SetRotation`), the vertical-layout
+  branch, the legacy-font `layer_agrees` check (`box_groups` over the router),
+  sideways runs, the broken-font-map turn nuance (`turn = not(reason ==
+  BROKEN_FONT_MAP and rotated < 0.5·chars)`), the unreadable-script rescue, and
+  `Page.Note` (the text-layer verdict and the "chars outside detected lines"
+  count).
+- **One render, not two:** upstream renders a check image at `CHECK_DPI = 72`
+  and, separately, the text page at the page dpi. The Go port renders once at
+  the page dpi (`min(dpi/72, sqrt(MAX_PAGE_PIXELS/area))`) and reuses it for the
+  ink checks and the text page. The trust thresholds are scale-robust; boxes are
+  kept in scaled pixels throughout. A `/Rotate`-reset page re-renders once more
+  (as upstream does).
+
+## Detector: the `picture` channel is dormant; pictures are not ported
+
+- Upstream's `det.onnx` can emit a fourth channel (picture/region hints) and
+  `detect_all` returns picture boxes; `pipeline.recognize`/`assemble` carry them
+  into layout. The **shipped v1.1.0 `det.onnx` has three channels** (core/top/
+  bottom) and upstream's own picture path is dormant (`picture_boxes` gets
+  `None`), so the port does not implement it. Decode is unchanged (3 channels).
 
 ## Quantized models
 
-- `rec.onnx` is mixed-precision int8 and `order.onnx` is dynamic int8; upstream
-  ships FP32 (plus an optional int8 `rec`). This moves the last digits of the
-  output (rec ~-0.16pp word recall; order reading-order neutral). See
-  `OPTIMIZATIONS_LOG.md` for the A/B evidence.
+- `rec.onnx` (the base recognizer) is mixed-precision int8 and `order.onnx` is
+  dynamic int8; upstream ships FP32 (plus an optional int8 `rec`). This moves the
+  last digits of the output. The three **script-group** recognizers
+  (`rec_cjk`, `rec_rtl`, `rec_world`) stay **FP32**: int8 needs per-script
+  calibration and a per-script quality guard that the FUNSD corpus cannot give
+  (with Latin calibration `rec_cjk` confabulates CJK; a CJK-calibrated build is
+  fine, but `rec_rtl`/`rec_world` int8 regressed on OPB multilingual pages even
+  with per-script calibration). See `OPTIMIZATIONS_LOG.md`.
+
+## Skew/orientation: integer row sums and merge-order ties
+
+- `estimateSkewPy`'s `rowSharpness` accumulates integer-valued pixel sums
+  (`255 - v`, with the sampling stride folded back in) rather than Python's float
+  accumulation; the two agree to the printed `0.1°` step, the decision
+  (`deskewMin`) is unaffected.
+- The LM beam search's final tie-break sorts candidates by score; ties at the
+  last float bit are resolved in Go's sort order rather than Python's stable
+  order (differences ~1e-6, no settled line observed to flip).
+
 
 ## Unreadable pages are skipped, not surfaced
 
 - `CallPDF` skips a page the engine cannot open; upstream yields a per-page
   `Page` with `source="error"` and a `note`. In the Go port `Page.Source` is
-  `"ocr"`, `"text"` or `"hybrid"`.
+  `"ocr"`, `"text"` or `"hybrid"` and `Page.Note` carries the text-layer verdict
+  and diagnostics (upstream `Page.note`), but a page the engine cannot open is
+  dropped rather than returned as an error page.
