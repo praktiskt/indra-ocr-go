@@ -2,9 +2,9 @@
 
 Native Go port of the [Indra OCR pipeline](https://github.com/datalab-to/indra) (Apache-2.0).
 
-~1M-parameter recognizer (Latin/multi + CJK) plus detector, ordering, orientation, script-classifier and math (LaTeX) models on ONNX Runtime, CPU only.
+~1M-parameter recognizers — a base Latin/multi model plus CJK, RTL (Arabic/Hebrew) and world (Greek/Cyrillic/Indic) models — routed per line by a script classifier, with n-gram language-model beam search. Plus detector, ordering, orientation (including vertical columns), PDF/file input and math (LaTeX) models on ONNX Runtime, CPU only.
 
-The recognizer ships as a mixed-precision int8 build (stem + first two blocks kept FP32, and Convs promoted Conv1d→Conv2d so ONNX Runtime applies its NCHWc layout): ~2.4x faster than the FP32 model at the pool's one-thread-per-worker setting for ~0.15pp less word recall. The CJK recognizer (`rec_cjk`) uses the same recipe, and the math encoder/decoder (`math_enc`/`math_dec_step`, `OCR.Math`) are dynamic int8. See [`tools/`](tools/README.md) for the recipes.
+The base recognizer ships as a mixed-precision int8 build (raw graph, stem + first two blocks kept FP32) and the reading-order model as dynamic int8; the three script-group recognizers ship FP32, because group-model int8 needs per-script calibration and a per-script quality guard. The math encoder/decoder (`math_enc`/`math_dec_step`, `OCR.Math`) are dynamic int8. See [`tools/`](tools/README.md) for the recipes and [`docs/OPTIMIZATIONS_LOG.md`](docs/OPTIMIZATIONS_LOG.md) for the A/B evidence (FUNSD guard 0.8658 FP32 → 0.8680 int8).
 
 ## Requirements
 
@@ -99,23 +99,25 @@ each: throughput plateaus by then, and each extra worker costs a handle
 ## Text layer & furniture
 
 Upstream reads a PDF's text layer where it is sound and OCRs the rest
-(`mode="auto"`). This port carries no PDF engine, so the **caller** extracts the
-runs and hands them over:
+(`mode="auto"`). `CallPDF` does this with the embedded PDFium engine; a caller
+that has its own PDF engine (or a text layer from elsewhere) can hand runs to
+`CallText` instead:
 
 ```go
 page := ocr.CallText(gray, &indra.TextLayer{Runs: []indra.TextRun{
     {Text: "Hello", Box: [4]float64{x0, y0, x1, y1}},
-    // ... runs in PDF content order. Add per-char Chars to split a run
-    // across detected lines (e.g. table cells).
+    // ... runs in PDF content order. Add per-char Chars (and Quarter/Seq for a
+    // real layer) to split a run across detected lines (e.g. table cells).
 }})
 ```
 
 `CallText` trusts the layer only when it is not invisible (render mode 3), has no
-broken-font characters, and its runs sit on ink (the `indra_ocr/textlayer.py`
-checks); otherwise it falls back to plain OCR. `Page.Source` is `"text"` or
-`"hybrid"` (lines the layer does not cover are OCR'd). Ordering uses the order
-model; upstream `pdf_order` is not ported (ported and measured neutral/negative:
-it regresses multi-column, see `docs/OPTIMIZATIONS_LOG.md`).
+broken-font characters, its runs sit on ink, and its right-to-left letters are
+stored in logical order (the `indra_ocr/textlayer.py` checks); otherwise it falls
+back to plain OCR. `Page.Source` is `"text"` or `"hybrid"` (lines the layer does
+not cover are OCR'd); `Page.Note` carries the verdict and diagnostics. Ordering
+uses the order model; upstream `pdf_order` is not ported (ported and measured
+neutral/negative: it regresses multi-column, see `docs/OPTIMIZATIONS_LOG.md`).
 
 `ocr.Furniture = true` (or `PoolBuilder.Furniture(true)`) keeps page headers and
 footers in the markdown, as upstream `load(furniture=True)`; the default drops
@@ -135,9 +137,12 @@ pages, err := ocr.CallPDF(pdfBytes, nil)                       // auto
 pages, err = ocr.CallPDF(pdfBytes, &indra.PDFOptions{Mode: "ocr"})
 ```
 
-`PDFOptions`: `DPI` (default 200), `Mode` (`"auto"` / `"ocr"` / `"text"`), `MaxPages`.
-`"text"` uses the text layer even when the trust checks fail; `"auto"` also uses
-an untrusted layer when the recognizer cannot read its script.
+`PDFOptions`: `DPI` (default 200), `Mode` (`"auto"` / `"ocr"` / `"text"`),
+`MaxPages`, `NoImageOCR`. `"text"` uses the text layer even when the trust checks
+fail; `"auto"` also uses an untrusted layer when the recognizer cannot read its
+script, and checks a trusted layer against the page image (legacy fonts).
+`NoImageOCR` drops detected lines the layer does not cover instead of OCRing them
+(upstream `image_ocr=False`).
 Upstream's `pdf_order` (keep the PDF content order) is not ported — Go orders
 with the order model. It was ported and measured: neutral on the full OPB
 headline and -1.14pp on `olmo_multi_column`, so it is rejected (see
@@ -146,9 +151,11 @@ headline and -1.14pp on `olmo_multi_column`, so it is rejected (see
 ## API
 
 The pipeline is `NewOCR` (one handle) or `NewPool*` (concurrent). Both expose
-`Call` (image), `CallAll` (batch), `CallText` (caller-supplied PDF text layer)
-and `CallPDF` (PDF bytes). `Page` holds `Lines` (reading order), `Blocks`,
-`Markdown` and `Source`.
+`Call` (image), `CallTurn` (image, orientation on/off), `CallAll` (batch),
+`CallText` (caller-supplied PDF text layer) and `CallPDF` (PDF bytes). `Page`
+holds `Lines` (reading order), `Blocks`, `Markdown`, `Source`, `Note`,
+`Rotation`, `Skew` and `Vertical` (a page set in vertical columns; its boxes are
+mapped back to the page as-is).
 
 ```go
 ocr, _ := indra.NewOCR(4)       // single handle, 4 intra-op threads
