@@ -57,8 +57,8 @@ delta / baseline.
   the base build is the raw graph; it is still faster than FP32.
   `rec_cjk`/`rec_rtl`/`rec_world` ship **FP32**.
 - **Evidence (this machine, FUNSD 199-page guard, threads=2):** FP32 v1.1.0
-  `rec` **0.8658**; int8 `rec` **0.8685** (neutral, +0.27pp is within noise).
-  Reading order (order.onnx int8 vs FP32, same rec/det): **148/199 pages
+  `rec` **0.8658**; int8 `rec` **0.8680** (neutral, +0.22pp is within noise).
+  Reading order (order.onnx int8 vs FP32, same rec/det): **150/199 pages
   identical**, mean Kendall tau **0.9959**, 2 pages < 0.9.
 - **Group recognizers stay FP32 (why):** int8 needs per-script calibration.
   Calibrating `rec_cjk` on Latin (FUNSD) crops confabulates CJK
@@ -72,6 +72,11 @@ delta / baseline.
 - **Bug fix (found by the guard):** `assemble` passed `tidy_lines` the
   *pre-split* boxes with the *post-split* recs (panic on any page whose line
   split at a wide gap). Fixed to pass the split boxes.
+- **Bug fix (found by a unit test):** the npz reader assumed fixed-width central
+  directory entries, so every LM failed to load and `lmFor` returned `nil` —
+  the beam search was silently off. Entries are now walked with their
+  name/extra/comment lengths; all three LMs load. FUNSD is LM-neutral
+  (0.8685 -> 0.8680); the LMs matter on messy text.
 
 ### PDFium concurrency: one library instance per concurrent document — `v0.28.1`
 

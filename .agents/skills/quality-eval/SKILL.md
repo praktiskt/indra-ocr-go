@@ -45,7 +45,7 @@ INDRA_CORPUS_DIR=/path/to/corpus go test -run TestCorpusRecall -count=1 -v
 ```
 
 Pass bar: word recall >= 0.80 (reference ~0.86 at v0.8.0; **v1.1.0**: FP32
-0.8658, shipped int8 0.8685, threads=2). Below bar = real regression, not
+0.8658, shipped int8 0.8680, threads=2). Below bar = real regression, not
 refactor noise. ~16s runtime.
 
 ## Reading order (the guard is blind to it)

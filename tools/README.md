@@ -56,7 +56,7 @@ Three choices carried the accuracy (details and the A/B evidence are in
 Measured on the FUNSD 199-page guard with the default pool (8 workers ×
 1 thread, 16-core Zen4), **v0.3.2**: FP32 0.9150 recall / ~17.4 pages/s →
 this build 0.9136 recall / ~22 pages/s (+~27% pages/s, −13% peak RSS).
-**v1.1.0** (threads=2): FP32 `rec` 0.8658 → int8 0.8685 (neutral).
+**v1.1.0** (threads=2): FP32 `rec` 0.8658 → int8 0.8680 (neutral).
 
 ## Regenerate `models/rec.onnx`
 

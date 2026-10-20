@@ -92,16 +92,19 @@ func openZip(data []byte) ([]zipEntry, error) {
 	n := int(binary.LittleEndian.Uint16(data[eocd+10:]))
 	cdOff := int(binary.LittleEndian.Uint32(data[eocd+16:]))
 	var out []zipEntry
+	p := cdOff
 	for i := 0; i < n; i++ {
-		p := cdOff + i*46
 		if p+46 > len(data) || binary.LittleEndian.Uint32(data[p:]) != 0x02014b50 {
 			return nil, fmt.Errorf("indra: npz: bad central directory")
 		}
 		method := binary.LittleEndian.Uint16(data[p+10:])
 		csize := int(binary.LittleEndian.Uint32(data[p+20:]))
 		nameLen := int(binary.LittleEndian.Uint16(data[p+28:]))
+		extraLen := int(binary.LittleEndian.Uint16(data[p+30:]))
+		commLen := int(binary.LittleEndian.Uint16(data[p+32:]))
 		lho := int(binary.LittleEndian.Uint32(data[p+42:]))
 		name := string(data[p+46 : p+46+nameLen])
+		p += 46 + nameLen + extraLen + commLen // entries are not fixed-width
 		lp := lho
 		if binary.LittleEndian.Uint32(data[lp:]) != 0x04034b50 {
 			return nil, fmt.Errorf("indra: npz: bad local header for %s", name)
