@@ -89,9 +89,9 @@ func inkSet1Scalar(ink []float32, src []uint8) {
 
 var fillInkRowDevice = 0
 
-// PadBatch right-pads ink maps to one width. Returns [B*H*Wm] NCHW-flattened
-// (C=1) plus widths.
-func PadBatch(lines [][]float32, heights, widths []int) (batched []float32, wOut []int64, wm int) {
+// PadBatch right-pads ink maps of one height to one width. Returns
+// [B*H*Wm] NCHW-flattened (C=1) plus widths.
+func PadBatch(lines [][]float32, h int, widths []int) (batched []float32, wOut []int64, wm int) {
 	wm = 0
 	for _, w := range widths {
 		if w > wm {
@@ -99,7 +99,6 @@ func PadBatch(lines [][]float32, heights, widths []int) (batched []float32, wOut
 		}
 	}
 	wm = ((wm + widthMultiple - 1) / widthMultiple) * widthMultiple
-	h := heights[0]
 	batched = make([]float32, len(lines)*h*wm)
 	wOut = make([]int64, len(lines))
 	for i, ln := range lines {

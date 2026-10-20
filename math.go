@@ -142,14 +142,12 @@ func (m *mathReader) flags(crops []lineCrop) []bool {
 	}
 	for _, part := range WidthBatches(ws, 512) {
 		lines := make([][]float32, len(part))
-		hs := make([]int, len(part))
 		bw := make([]int, len(part))
 		for k, j := range part {
 			lines[k] = crops[j].ink
-			hs[k] = mathClsHeight
 			bw[k] = crops[j].w
 		}
-		batched, wOut, wm := PadBatch(lines, hs, bw)
+		batched, wOut, wm := PadBatch(lines, mathClsHeight, bw)
 		x, err := ort.NewTensor(ort.Shape{int64(len(part)), 1, mathClsHeight, int64(wm)}, batched)
 		if err != nil {
 			continue
@@ -184,7 +182,8 @@ func (m *mathReader) read(g *Gray, boxes [][4]float32) []mathLine {
 	crops := make([]lineCrop, n)
 	for i, b := range boxes {
 		fb := [4]float64{float64(b[0]), float64(b[1]), float64(b[2]), float64(b[3])}
-		ink := CropLine(g, fb, m.height)
+		dark := isDarkLine(g, fb)
+		ink := CropLine(g, fb, m.height, 1, dark)
 		crops[i] = lineCrop{ink, len(ink) / m.height}
 	}
 	ws := make([]int, n)
@@ -200,14 +199,12 @@ func (m *mathReader) read(g *Gray, boxes [][4]float32) []mathLine {
 func (m *mathReader) decodeBatch(out []mathLine, crops []lineCrop, part []int) {
 	b := len(part)
 	lines := make([][]float32, b)
-	hs := make([]int, b)
 	bw := make([]int, b)
 	for k, j := range part {
 		lines[k] = crops[j].ink
-		hs[k] = m.height
 		bw[k] = crops[j].w
 	}
-	batched, wOut, wm := PadBatch(lines, hs, bw)
+	batched, wOut, wm := PadBatch(lines, m.height, bw)
 	x, err := ort.NewTensor(ort.Shape{int64(b), 1, int64(m.height), int64(wm)}, batched)
 	if err != nil {
 		return

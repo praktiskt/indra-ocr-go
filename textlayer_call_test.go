@@ -89,7 +89,7 @@ func TestCallTextWithLayer(t *testing.T) {
 	// shape of a PDF layer: one run per line). CallText must reproduce OCR.
 	g2, _, _ := ocr.Upright(g)
 	boxes := ocr.Detect(g2)
-	recs := ocr.recognize(g2, boxes)
+	recs := ocr.recognize(g2, boxes, false)
 	var runs []TextRun
 	for i, b := range boxes {
 		if strings.TrimSpace(recs[i].text) != "" {

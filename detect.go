@@ -62,10 +62,21 @@ type lineCrop struct {
 	w   int
 }
 
-// cropLines crops every box to rec height (in parallel for large pages).
-func (o *OCR) cropLines(g *Gray, boxes [][4]float32) []lineCrop {
+// cropLines crops every box to `height` px (times the window; a window > 1
+// reads the page above and below the line) — in parallel for large pages.
+// dark (when not nil) inverts light-on-dark lines.
+func (o *OCR) cropLines(g *Gray, boxes [][4]float32, height, window int, dark []bool) []lineCrop {
 	n := len(boxes)
 	crops := make([]lineCrop, n)
+	crop1 := func(i int, b [4]float32) {
+		fb := f64box(b)
+		d := false
+		if dark != nil {
+			d = dark[i]
+		}
+		ink := CropLine(g, fb, height, window, d)
+		crops[i] = lineCrop{ink, len(ink) / (height * window)}
+	}
 	if n >= 16 {
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, runtime.NumCPU())
@@ -74,18 +85,14 @@ func (o *OCR) cropLines(g *Gray, boxes [][4]float32) []lineCrop {
 			sem <- struct{}{}
 			go func(i int, b [4]float32) {
 				defer wg.Done()
-				fb := [4]float64{float64(b[0]), float64(b[1]), float64(b[2]), float64(b[3])}
-				ink := CropLine(g, fb, o.m.RecHeight)
-				crops[i] = lineCrop{ink, len(ink) / o.m.RecHeight}
+				crop1(i, b)
 				<-sem
 			}(i, b)
 		}
 		wg.Wait()
 	} else {
 		for i, b := range boxes {
-			fb := [4]float64{float64(b[0]), float64(b[1]), float64(b[2]), float64(b[3])}
-			ink := CropLine(g, fb, o.m.RecHeight)
-			crops[i] = lineCrop{ink, len(ink) / o.m.RecHeight}
+			crop1(i, b)
 		}
 	}
 	return crops

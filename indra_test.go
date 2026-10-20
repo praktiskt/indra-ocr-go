@@ -120,7 +120,7 @@ func TestCropLineHeight(t *testing.T) {
 	for i := range g.Pix {
 		g.Pix[i] = 255
 	}
-	ink := CropLine(g, [4]float64{50, 50, 150, 70}, 32)
+	ink := CropLine(g, [4]float64{50, 50, 150, 70}, 32, 1, false)
 	if len(ink)%32 != 0 || len(ink)/32 < 8 {
 		t.Fatalf("bad crop len %d", len(ink))
 	}

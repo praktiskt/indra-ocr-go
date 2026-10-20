@@ -8,12 +8,14 @@ import (
 )
 
 type sessions struct {
-	det    *ort.DynamicAdvancedSession
-	rec    *ort.DynamicAdvancedSession
-	recCJK *ort.DynamicAdvancedSession // CJK recognizer (routed by script)
-	script *ort.DynamicAdvancedSession // per-line script classifier
-	order  *ort.DynamicAdvancedSession
-	orient *ort.DynamicAdvancedSession
+	det      *ort.DynamicAdvancedSession
+	rec      *ort.DynamicAdvancedSession
+	recCJK   *ort.DynamicAdvancedSession // CJK recognizer (routed by script)
+	recRTL   *ort.DynamicAdvancedSession // right-to-left recognizer
+	recWorld *ort.DynamicAdvancedSession // world-script recognizer (Indic, Thai, ...)
+	script   *ort.DynamicAdvancedSession // per-line script router
+	order    *ort.DynamicAdvancedSession
+	orient   *ort.DynamicAdvancedSession
 }
 
 func newOptions(threads int) (*ort.SessionOptions, error) {
@@ -73,6 +75,11 @@ func newSessions(threads int) (*sessions, error) {
 	return newSessionsWithThreads(DefaultThreads(threads))
 }
 
+// recOutputs names all rec.onnx outputs: greedy (ids, conf, lengths) plus the
+// CTC distributions (blank, top-v classes) the language-model beam search
+// reads on unsure lines.
+var recOutputs = []string{"ids", "conf", "lengths", "blank", "topv", "topi"}
+
 // newSessionsWithThreads opens sessions with per-model thread counts.
 func newSessionsWithThreads(tc Threads) (*sessions, error) {
 	if err := InitLib(); err != nil {
@@ -95,13 +102,21 @@ func newSessionsWithThreads(tc Threads) (*sessions, error) {
 	if s.det, err = mkWith("det.onnx", []string{"x"}, []string{"out"}, tc.Det); err != nil {
 		return nil, fmt.Errorf("indra: det: %w", err)
 	}
-	if s.rec, err = mkWith("rec.onnx", []string{"x", "widths"}, []string{"ids", "conf", "lengths"}, tc.Rec); err != nil {
+	if s.rec, err = mkWith("rec.onnx", []string{"x", "widths"}, recOutputs, tc.Rec); err != nil {
 		s.close()
 		return nil, fmt.Errorf("indra: rec: %w", err)
 	}
-	if s.recCJK, err = mkWith("rec_cjk.onnx", []string{"x", "widths"}, []string{"ids", "conf", "lengths"}, tc.Rec); err != nil {
+	if s.recCJK, err = mkWith("rec_cjk.onnx", []string{"x", "widths"}, recOutputs, tc.Rec); err != nil {
 		s.close()
 		return nil, fmt.Errorf("indra: rec_cjk: %w", err)
+	}
+	if s.recRTL, err = mkWith("rec_rtl.onnx", []string{"x", "widths"}, recOutputs, tc.Rec); err != nil {
+		s.close()
+		return nil, fmt.Errorf("indra: rec_rtl: %w", err)
+	}
+	if s.recWorld, err = mkWith("rec_world.onnx", []string{"x", "widths"}, recOutputs, tc.Rec); err != nil {
+		s.close()
+		return nil, fmt.Errorf("indra: rec_world: %w", err)
 	}
 	if s.script, err = mkWith("script.onnx", []string{"x", "widths"}, []string{"p"}, tc.Order); err != nil {
 		s.close()
@@ -123,7 +138,7 @@ func (s *sessions) close() {
 	if s == nil {
 		return
 	}
-	for _, d := range []*ort.DynamicAdvancedSession{s.det, s.rec, s.recCJK, s.script, s.order, s.orient} {
+	for _, d := range []*ort.DynamicAdvancedSession{s.det, s.rec, s.recCJK, s.recRTL, s.recWorld, s.script, s.order, s.orient} {
 		if d != nil {
 			d.Destroy()
 		}
@@ -149,12 +164,18 @@ func (s *sessions) runDet(ink []float32, ph, pw int) ([]float32, int, int, error
 	return y.GetData(), int(sh[2]), int(sh[3]), nil
 }
 
-// recOut is one batch of rec.onnx outputs.
+// recOut is one batch of rec.onnx outputs: the greedy decode (IDs, Conf, Lens)
+// plus the CTC distributions the LM beam search reads on unsure lines
+// (Blank [B*T], TopV/TopI [B*T*K]).
 type recOut struct {
-	IDs  []int64
-	Conf []float32
-	Lens []int64
-	B, T int
+	IDs   []int64
+	Conf  []float32
+	Lens  []int64
+	Blank []float32
+	TopV  []float32
+	TopI  []int64
+	K     int
+	B, T  int
 }
 
 // runRec runs rec.onnx on a padded batch [B,1,H,Wm].
@@ -165,6 +186,16 @@ func (s *sessions) runRec(batch []float32, b, h, wm int, widths []int64) (*recOu
 // runRecCJK runs rec_cjk.onnx on a padded batch [B,1,H,Wm].
 func (s *sessions) runRecCJK(batch []float32, b, h, wm int, widths []int64) (*recOut, error) {
 	return recBatch(s.recCJK, batch, b, h, wm, widths)
+}
+
+// runRecRTL runs rec_rtl.onnx on a padded batch [B,1,H,Wm].
+func (s *sessions) runRecRTL(batch []float32, b, h, wm int, widths []int64) (*recOut, error) {
+	return recBatch(s.recRTL, batch, b, h, wm, widths)
+}
+
+// runRecWorld runs rec_world.onnx on a padded batch [B,1,H,Wm].
+func (s *sessions) runRecWorld(batch []float32, b, h, wm int, widths []int64) (*recOut, error) {
+	return recBatch(s.recWorld, batch, b, h, wm, widths)
 }
 
 func recBatch(sess *ort.DynamicAdvancedSession, batch []float32, b, h, wm int, widths []int64) (*recOut, error) {
@@ -197,40 +228,67 @@ func recBatch(sess *ort.DynamicAdvancedSession, batch []float32, b, h, wm int, w
 		return nil, err
 	}
 	defer lens.Destroy()
-	if err := sess.Run([]ort.Value{x, w}, []ort.Value{ids, conf, lens}); err != nil {
+	blank, err := ort.NewEmptyTensor[float32](ort.Shape{int64(b), int64(t)})
+	if err != nil {
+		return nil, err
+	}
+	defer blank.Destroy()
+	const k = 8 // top-k classes per step (the export's beam width)
+	topv, err := ort.NewEmptyTensor[float32](ort.Shape{int64(b), int64(t), k})
+	if err != nil {
+		return nil, err
+	}
+	defer topv.Destroy()
+	topi, err := ort.NewEmptyTensor[int64](ort.Shape{int64(b), int64(t), k})
+	if err != nil {
+		return nil, err
+	}
+	defer topi.Destroy()
+	if err := sess.Run([]ort.Value{x, w}, []ort.Value{ids, conf, lens, blank, topv, topi}); err != nil {
 		return nil, err
 	}
 	tt := int(ids.GetShape()[1])
 	return &recOut{
-		IDs:  ids.GetData(),
-		Conf: conf.GetData(),
-		Lens: lens.GetData(),
-		B:    b, T: tt,
+		IDs:   ids.GetData(),
+		Conf:  conf.GetData(),
+		Lens:  lens.GetData(),
+		Blank: blank.GetData(),
+		TopV:  topv.GetData(),
+		TopI:  topi.GetData(),
+		K:     k,
+		B:     b, T: tt,
 	}, nil
 }
 
 // runScript runs script.onnx on a padded batch [B,1,H,Wm], returning per-line
-// P(the line holds Chinese characters).
-func (s *sessions) runScript(batch []float32, b, h, wm int, widths []int64) ([]float32, error) {
+// class probabilities [B * nClasses] and the class count (a 4-class router;
+// an older export returns one P(Chinese) value per line and nClasses 1).
+func (s *sessions) runScript(batch []float32, b, h, wm int, widths []int64) ([]float32, int, error) {
 	x, err := ort.NewTensor(ort.Shape{int64(b), 1, int64(h), int64(wm)}, batch)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer x.Destroy()
 	w, err := ort.NewTensor(ort.Shape{int64(b)}, widths)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer w.Destroy()
-	p, err := ort.NewEmptyTensor[float32](ort.Shape{int64(b)})
+	p, err := ort.NewEmptyTensor[float32](ort.Shape{int64(b), 4})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer p.Destroy()
 	if err := s.script.Run([]ort.Value{x, w}, []ort.Value{p}); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return p.GetData(), nil
+	nc := 4
+	if sh := p.GetShape(); len(sh) > 1 && sh[1] > 0 {
+		nc = int(sh[1])
+	} else if len(p.GetData()) == b {
+		nc = 1
+	}
+	return p.GetData(), nc, nil
 }
 
 // orderOut holds order.onnx outputs for N lines.
@@ -286,9 +344,10 @@ func (s *sessions) runOrder(feats []float32, n int) (*orderOut, error) {
 	}, nil
 }
 
-// runOrient runs orient.onnx on a 768x768 ink map, returns 4 class probs.
-func (s *sessions) runOrient(ink []float32) ([4]float32, error) {
-	var p [4]float32
+// runOrient runs orient.onnx on a 768x768 ink map, returns 5 class probs
+// (0-3: quarter turns, 4: vertical columns).
+func (s *sessions) runOrient(ink []float32) ([5]float32, error) {
+	var p [5]float32
 	if s.orient == nil {
 		return p, nil
 	}
@@ -297,7 +356,7 @@ func (s *sessions) runOrient(ink []float32) ([4]float32, error) {
 		return p, err
 	}
 	defer x.Destroy()
-	y, err := ort.NewEmptyTensor[float32](ort.Shape{1, 4})
+	y, err := ort.NewEmptyTensor[float32](ort.Shape{1, 5})
 	if err != nil {
 		return p, err
 	}

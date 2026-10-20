@@ -97,16 +97,16 @@ func TestEstimateSkewRecoversTilt(t *testing.T) {
 			x += w + 10 + rng.Intn(15)
 		}
 	}
-	if got := estimateSkew(g); math.Abs(got) > 0.15 {
+	if got := estimateSkewPy(g); math.Abs(got) > 0.15 {
 		t.Fatalf("untilted skew = %v, want |<0.15|", got)
 	}
 	for _, tilt := range []float64{2.0, -1.3, 0.6} {
-		est := estimateSkew(rotatePage(g, tilt))
+		est := estimateSkewPy(rotatePage(g, tilt))
 		if math.Abs(est+tilt) > 0.15 {
 			t.Errorf("tilt %v: estimate %v, want |est+tilt|<=0.15", tilt, est)
 		}
 	}
-	if got := estimateSkew(newPage(800, 600)); got != 0 {
+	if got := estimateSkewPy(newPage(800, 600)); got != 0 {
 		t.Errorf("blank page skew = %v, want 0", got)
 	}
 }

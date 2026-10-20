@@ -48,7 +48,7 @@ func TestOCRIntegrationRealPage(t *testing.T) {
 	if len(boxes) < 50 {
 		t.Fatalf("want >=50 boxes on real page, got %d", len(boxes))
 	}
-	rec := ocr.recognize(g, boxes)
+	rec := ocr.recognize(g, boxes, false)
 	empty := 0
 	for _, r := range rec {
 		if r.text == "" {

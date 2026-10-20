@@ -1,10 +1,13 @@
-// OCR pipeline over sessions. Port of OrtOCR in pipeline.py (sans mask.onnx and
-// math: Latin/multi + CJK routing).
+// OCR pipeline over sessions. Port of OrtOCR in pipeline.py (sans mask.onnx
+// and math: four script-group recognizers + LM beam search).
 package indra
 
 import (
+	"math"
 	"strings"
 	"sync"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
@@ -22,7 +25,6 @@ const (
 	adaptiveMinH    = 9.0
 	adaptiveTargetH = 12.0
 	adaptiveMaxSide = 2048
-	deskewMin       = 0.3
 )
 
 // Line is a recognized line in reading order.
@@ -40,6 +42,9 @@ type Page struct {
 	Source   string // "ocr"
 	Rotation int
 	Skew     float64
+	// Vertical: the page is set in vertical columns (Chinese, Japanese): it
+	// was read turned a quarter turn, and its boxes are on the page as it is.
+	Vertical bool
 }
 
 // Text is the reading-order line texts joined by newlines (upstream Page.text).
@@ -89,9 +94,18 @@ func NewOCRWithThreads(tc Threads) (*OCR, error) {
 	return &OCR{s: s, m: m, v: m.vocab}, nil
 }
 
-// RecHeight is the recognizer crop height (the rec model's input height), the
-// value CropLine expects. Exposed for tools that drive the stages directly.
+// RecHeight is the recognizer crop height (the rec model's line-band input
+// height; the model's own input is RecHeight * RecWindow). Exposed for tools
+// that drive the stages directly.
 func (o *OCR) RecHeight() int { return o.m.RecHeight }
+
+// RecWindow is the recognizer's window multiplier (3 = it reads the line band
+// plus a band of page above and below).
+func (o *OCR) RecWindow() int { return o.m.RecWindow }
+
+// LineDark reports light-on-dark per line box (exported for the calibration
+// tool; mirrors is_dark_line).
+func (o *OCR) LineDark(g *Gray, boxes [][4]float32) []bool { return lineDarkness(g, boxes) }
 
 // Close releases sessions, including lazily loaded math sessions.
 func (o *OCR) Close() {
@@ -108,10 +122,15 @@ func (o *OCR) math() *mathReader {
 	return o.mathReader
 }
 
-// token is (id, page-x) from a CTC peak.
+// token is (id, page-x) from a CTC peak of the main recognizer, or a literal
+// character (Ch) from a group recognizer, the math reader or a PDF text
+// layer (Seq/hasSeq: its content-order index, unset for OCR tokens).
 type token struct {
-	ID int
-	X  float64
+	ID     int
+	Ch     string
+	X      float64
+	Seq    int
+	hasSeq bool
 }
 
 // recLine is (text, conf, tokens) per detected line.
@@ -121,11 +140,67 @@ type recLine struct {
 	toks []token
 }
 
+// isSpaceTok reports whether a token is a blank separator for gap splitting.
+func (o *OCR) isSpaceTok(tk token) bool {
+	if tk.Ch != "" {
+		return tk.Ch == " "
+	}
+	return tk.ID == 0 || tk.ID == o.v.SpaceID()
+}
+
+// decodeToks is the text of tokens: (vocab id, x) from the main recognizer,
+// (char, x) from a group recognizer (visual order: right-to-left text is
+// flipped by the page direction), or (char, x, content index) from a PDF
+// text layer. Port of _decode.
+func (o *OCR) decodeToks(toks []token, pageRTL *bool) string {
+	if len(toks) > 0 && toks[0].Ch != "" {
+		var sb strings.Builder
+		for _, tk := range toks {
+			sb.WriteString(tk.Ch)
+		}
+		text := sb.String()
+		text = strings.Join(strings.Fields(text), " ")
+		text = norm.NFC.String(text) // Hangul jamo -> syllables
+		if !toks[0].hasSeq && hasRTL(text) {
+			var base *bool
+			if pageRTL != nil {
+				b := *pageRTL
+				base = &b
+			}
+			text = flip(text, true, base)
+		}
+		return text
+	}
+	ids := make([]int, len(toks))
+	for i, tk := range toks {
+		ids[i] = tk.ID
+	}
+	return o.v.Decode(ids)
+}
+
+// Call OCRs one page image.
 func (o *OCR) Call(g *Gray) *Page {
-	g, k, skew := o.Upright(g)
-	boxes := o.Detect(g)
-	rec := o.recognize(g, boxes)
-	return o.finish(g, k, skew, boxes, rec)
+	small := o.preview(g, previewSide)
+	a := estimateSkewPy(small)
+	var k int
+	if math.Abs(a) >= deskewMin {
+		k = o.orientation(rotatePage(small, a))
+	} else {
+		k = o.orientation(small)
+	}
+	return o.read(g, k, a, small)
+}
+
+
+
+// read turns the page upright, detects, recognizes and assembles (the body
+// of upstream _read).
+func (o *OCR) read(g *Gray, k int, a float64, small *Gray) *Page {
+	g2, k, skew := o.turn(g, k, a, small)
+	vertical := k == orientVertical
+	boxes := o.Detect(g2)
+	rec := o.recognize(g2, boxes, vertical)
+	return o.finish(g2, k, skew, boxes, rec)
 }
 
 // single goroutine that owns its stage's sessions (orient+det / rec / order):
@@ -154,7 +229,7 @@ func (o *OCR) CallAll(gs []*Gray) []*Page {
 	go func() { // recognize: consumes detects, feeds assembly
 		defer wg.Done()
 		for d := range in {
-			mid <- recRes{detRes: d, rec: o.recognize(d.g, d.boxes)}
+			mid <- recRes{detRes: d, rec: o.recognize(d.g, d.boxes, d.k == orientVertical)}
 		}
 		close(mid)
 	}()
@@ -165,7 +240,15 @@ func (o *OCR) CallAll(gs []*Gray) []*Page {
 		}
 	}()
 	for i, g := range gs { // orient + detect
-		g2, k, skew := o.Upright(g)
+		small := o.preview(g, previewSide)
+		a := estimateSkewPy(small)
+		var k int
+		if math.Abs(a) >= deskewMin {
+			k = o.orientation(rotatePage(small, a))
+		} else {
+			k = o.orientation(small)
+		}
+		g2, k, skew := o.turn(g, k, a, small)
 		boxes := o.Detect(g2)
 		in <- detRes{idx: i, g: g2, boxes: boxes, k: k, skew: skew}
 	}
@@ -173,3 +256,5 @@ func (o *OCR) CallAll(gs []*Gray) []*Page {
 	wg.Wait()
 	return out
 }
+
+

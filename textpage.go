@@ -41,7 +41,7 @@ func (o *OCR) textPage(g *Gray, tl *TextLayer) *Page {
 	}
 	source := "text"
 	if len(empty) > 0 && o.readableText(tl.Runs) {
-		for j, r := range o.recognize(g2, empty) {
+		for j, r := range o.recognize(g2, empty, false) {
 			if strings.TrimSpace(r.text) != "" {
 				rec[emptyAt[j]] = r
 				source = "hybrid"

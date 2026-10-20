@@ -7,6 +7,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/width"
 )
 
 // blockClasses are the layout head classes per line.
@@ -30,6 +32,10 @@ const (
 	nText  = 6
 	NFeats = nGeom + nText
 )
+
+// sentenceEnd is order_post.SENTENCE_END: line-ending punctuation (with the
+// CJK fullwidth forms).
+const sentenceEnd = ".!?:;。！？：；．"
 
 // lineFeatures builds [N x NFeats] float32 features. Port of line_features.
 func lineFeatures(boxes [][4]float64, pageW, pageH float64, texts []string) []float32 {
@@ -65,7 +71,17 @@ func lineFeatures(boxes [][4]float64, pageW, pageH float64, texts []string) []fl
 					}
 				}
 				row := out[i*NFeats+nGeom : (i+1)*NFeats]
-				row[0] = float32(math.Log1p(float64(len(t))) / 5)
+				// length in Latin-letter widths: a CJK character is about two
+				// wide, so a full CJK line does not read as a short table cell
+				dl := 0
+				for _, c := range t {
+					if k := width.LookupRune(c).Kind(); k == width.EastAsianWide || k == width.EastAsianFullwidth {
+						dl += 2
+					} else {
+						dl++
+					}
+				}
+				row[0] = float32(math.Log1p(float64(dl)) / 5)
 				row[1] = float32(float64(nd) / float64(len(t)))
 				if isListStart(t) {
 					row[2] = 1
@@ -74,7 +90,7 @@ func lineFeatures(boxes [][4]float64, pageW, pageH float64, texts []string) []fl
 					row[3] = 1
 				}
 				last, _ := utf8.DecodeLastRuneInString(t)
-				if last == '.' || last == '!' || last == '?' || last == ':' || last == ';' {
+				if strings.ContainsRune(sentenceEnd, last) {
 					row[4] = 1
 				}
 				first, _ := utf8.DecodeRuneInString(t)
@@ -304,6 +320,57 @@ func orderXYCut(boxes [][4]float64) []int {
 		ids[i] = i
 	}
 	return xyRec(boxes, ids)
+}
+
+// xyCutBlocks splits the lines into blocks in reading order by recursive
+// XY-cut, for pages the order model does not know (vertical pages, read
+// turned). A cut needs a whitespace gap of at least minGap median line
+// heights; the widest gap cuts first, the upper or left part first. Lines
+// inside a block go by orderXYCut. Port of xycut_blocks.
+func xyCutBlocks(boxes [][4]float64, minGap float64) [][]int {
+	if len(boxes) == 0 {
+		return nil
+	}
+	hs := make([]float64, len(boxes))
+	for i, b := range boxes {
+		hs[i] = b[3] - b[1]
+	}
+	h := npMedian(hs)
+	var rec func(ids []int) [][]int
+	rec = func(ids []int) [][]int {
+		b := make([][4]float64, len(ids))
+		for i, id := range ids {
+			b[i] = boxes[id]
+		}
+		if len(ids) > 1 {
+			gy, ky, oy := bestCut(b, ids, 1)
+			gx, kx, ox := bestCut(b, ids, 0)
+			gap, k, o := gy, ky, oy
+			if gx > gy {
+				gap, k, o = gx, kx, ox
+			}
+			if k >= 0 && gap >= minGap*h {
+				out := rec(o[:k])
+				return append(out, rec(o[k:])...)
+			}
+		}
+		// lines inside a block go by the plain XY-cut order
+		pos := orderXYCut(b)
+		leaf := make([]int, len(pos))
+		for i, p := range pos {
+			leaf[i] = ids[p]
+		}
+		return [][]int{leaf}
+	}
+	return rec(mustRange(len(boxes)))
+}
+
+func mustRange(n int) []int {
+	out := make([]int, n)
+	for i := range out {
+		out[i] = i
+	}
+	return out
 }
 
 func bestCut(boxes [][4]float64, ids []int, axis int) (gap float64, k int, o []int) {
