@@ -84,19 +84,27 @@ func TestPDFiumConcurrentRender(t *testing.T) {
 		n := inst.pageCount(doc)
 		put(int64(n))
 		for i := 0; i < n; i++ {
-			g, runs, chars, rot, invis, ok := inst.process(doc, i, 200.0/72.0)
+			page, ok := inst.loadPage(doc, i)
 			put(ok)
 			if !ok {
+				continue
+			}
+			g, ok := page.render(200.0 / 72.0)
+			put(ok)
+			if !ok {
+				page.close()
 				continue
 			}
 			put(int64(g.W))
 			put(int64(g.H))
 			h.Write(g.Pix)
-			put(int64(chars))
-			put(int64(rot))
-			h.Write([]byte(fmt.Sprintf("%v", invis)))
-			put(int64(len(runs)))
-			for _, r := range runs {
+			layer := page.extract(200.0/72.0, 0, 0)
+			page.close()
+			put(int64(layer.Chars))
+			put(int64(layer.Stats.Rotated))
+			put(layer.Invisible)
+			put(int64(len(layer.Runs)))
+			for _, r := range layer.Runs {
 				h.Write([]byte(r.Text))
 				for _, v := range r.Box {
 					put(v)

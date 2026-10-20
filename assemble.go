@@ -230,7 +230,7 @@ func (o *OCR) assemble(wh [2]float64, boxes [][4]float32, rec []recLine, vertica
 			nr = append(nr, part.rec)
 		}
 	}
-	boxes64, rec = o.tidyLines(boxes64, nr, pageRTL)
+	boxes64, rec = o.tidyLines(nb2, nr, pageRTL)
 	texts := make([]string, len(rec))
 	for i, r := range rec {
 		texts[i] = r.text

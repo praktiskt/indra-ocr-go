@@ -39,9 +39,12 @@ type Page struct {
 	Lines    []Line
 	Markdown string
 	Blocks   []Block
-	Source   string // "ocr"
+	Source   string // "ocr", "text" or "hybrid" (PDF text layer)
 	Rotation int
 	Skew     float64
+	// Note records why a path was taken (upstream Page.note): the text-layer
+	// verdict, characters outside detected lines, an error.
+	Note string
 	// Vertical: the page is set in vertical columns (Chinese, Japanese): it
 	// was read turned a quarter turn, and its boxes are on the page as it is.
 	Vertical bool
@@ -179,14 +182,20 @@ func (o *OCR) decodeToks(toks []token, pageRTL *bool) string {
 }
 
 // Call OCRs one page image.
-func (o *OCR) Call(g *Gray) *Page {
+func (o *OCR) Call(g *Gray) *Page { return o.CallTurn(g, true) }
+
+// CallTurn OCRs one page image; turn=false: the page is known to be upright (no
+// orient.onnx), as document.py passes for a text-layer page it already turned.
+func (o *OCR) CallTurn(g *Gray, turn bool) *Page {
 	small := o.preview(g, previewSide)
 	a := estimateSkewPy(small)
-	var k int
-	if math.Abs(a) >= deskewMin {
-		k = o.orientation(rotatePage(small, a))
-	} else {
-		k = o.orientation(small)
+	k := 0
+	if turn {
+		if math.Abs(a) >= deskewMin {
+			k = o.orientation(rotatePage(small, a))
+		} else {
+			k = o.orientation(small)
+		}
 	}
 	return o.read(g, k, a, small)
 }

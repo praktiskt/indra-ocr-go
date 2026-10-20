@@ -52,6 +52,8 @@ typedef struct pdfium_api {
 	FPDF_PAGEOBJECT (*Page_GetObject)(FPDF_PAGE, int);
 	int (*PageObj_GetType)(FPDF_PAGEOBJECT);
 	int (*TextObj_GetTextRenderMode)(FPDF_PAGEOBJECT);
+	int (*Page_GetRotation)(FPDF_PAGE);
+	void (*Page_SetRotation)(FPDF_PAGE, int);
 } pdfium_api;
 
 #define PDFIUM_SYM(api, field, name)                    \
@@ -98,6 +100,8 @@ static pdfium_api* pdfium_api_open(const char* path) {
 	PDFIUM_SYM(api, Page_GetObject, "FPDFPage_GetObject");
 	PDFIUM_SYM(api, PageObj_GetType, "FPDFPageObj_GetType");
 	PDFIUM_SYM(api, TextObj_GetTextRenderMode, "FPDFTextObj_GetTextRenderMode");
+	PDFIUM_SYM(api, Page_GetRotation, "FPDFPage_GetRotation");
+	PDFIUM_SYM(api, Page_SetRotation, "FPDFPage_SetRotation");
 	api->InitLibrary();
 	return api;
 }
@@ -172,6 +176,12 @@ static int pdfium_objtype(pdfium_api* api, FPDF_PAGEOBJECT o) {
 }
 static int pdfium_textobj_rendermode(pdfium_api* api, FPDF_PAGEOBJECT o) {
 	return api->TextObj_GetTextRenderMode(o);
+}
+static int pdfium_page_rotation(pdfium_api* api, FPDF_PAGE p) {
+	return api->Page_GetRotation(p);
+}
+static void pdfium_page_setrotation(pdfium_api* api, FPDF_PAGE p, int r) {
+	api->Page_SetRotation(p, r);
 }
 */
 import "C"
@@ -420,102 +430,273 @@ func (inst *pdfiumInst) invisibleFrac(page C.FPDF_PAGE) float64 {
 	return float64(inv) / float64(n)
 }
 
-// process renders page index at scale and extracts its text-layer runs (boxes
-// in rendered pixels), the character stats and the invisible-text fraction. It
-// mirrors textlayer.extract_runs / read_text_layer.
-func (inst *pdfiumInst) process(doc unsafe.Pointer, index int, scale float64) (*Gray, []TextRun, int, int, float64, bool) {
+// pdfPage is one loaded PDF page, held open across the text-layer extraction
+// renders of that page (document.pdf_page re-reads the layer at several frames).
+type pdfPage struct {
+	inst  *pdfiumInst
+	page  C.FPDF_PAGE
+	index int
+}
+
+// loadPage loads one page. The caller must close it.
+func (inst *pdfiumInst) loadPage(doc unsafe.Pointer, index int) (*pdfPage, bool) {
 	page := C.pdfium_loadpage(inst.api, C.FPDF_DOCUMENT(doc), C.int(index))
 	if page == nil {
-		return nil, nil, 0, 0, 0, false
+		return nil, false
 	}
-	defer C.pdfium_closepage(inst.api, page)
-	pw := float64(C.pdfium_pagewidth(inst.api, page))
-	ph := float64(C.pdfium_pageheight(inst.api, page))
+	return &pdfPage{inst: inst, page: page, index: index}, true
+}
+
+func (p *pdfPage) close() { C.pdfium_closepage(p.inst.api, p.page) }
+
+// size returns the page width and height in points (as rendered).
+func (p *pdfPage) size() (float64, float64) {
+	return float64(C.pdfium_pagewidth(p.inst.api, p.page)),
+		float64(C.pdfium_pageheight(p.inst.api, p.page))
+}
+
+func (p *pdfPage) rotation() int { return int(C.pdfium_page_rotation(p.inst.api, p.page)) }
+func (p *pdfPage) setRotation(r int) {
+	C.pdfium_page_setrotation(p.inst.api, p.page, C.int(r))
+}
+
+// render renders the page at scale (px/pt) to grayscale in its displayed frame.
+func (p *pdfPage) render(scale float64) (*Gray, bool) {
+	pw, ph := p.size()
 	w := int(pw*scale + 0.5)
 	h := int(ph*scale + 0.5)
 	if w < 1 || h < 1 {
-		return nil, nil, 0, 0, 0, false
+		return nil, false
 	}
 	buf := make([]byte, w*h*4)
-	bmp := C.pdfium_bitmap(inst.api, C.int(w), C.int(h), 4, unsafe.Pointer(&buf[0]), C.int(w*4))
+	bmp := C.pdfium_bitmap(p.inst.api, C.int(w), C.int(h), 4, unsafe.Pointer(&buf[0]), C.int(w*4))
 	if bmp == nil {
-		return nil, nil, 0, 0, 0, false
+		return nil, false
 	}
-	C.pdfium_bitmap_fill(inst.api, bmp, 0, 0, C.int(w), C.int(h), 0xFFFFFFFF)
-	C.pdfium_render(inst.api, bmp, page, 0, 0, C.int(w), C.int(h), 0, 0)
-	C.pdfium_bitmap_destroy(inst.api, bmp)
+	C.pdfium_bitmap_fill(p.inst.api, bmp, 0, 0, C.int(w), C.int(h), 0xFFFFFFFF)
+	C.pdfium_render(p.inst.api, bmp, p.page, 0, 0, C.int(w), C.int(h), 0, 0)
+	C.pdfium_bitmap_destroy(p.inst.api, bmp)
 	px := make([]uint8, w*h)
 	for i := 0; i < w*h; i++ {
 		px[i] = uint8((299*int(buf[i*4+2]) + 587*int(buf[i*4+1]) + 114*int(buf[i*4])) / 1000)
 	}
-	g := &Gray{Pix: px, W: w, H: h}
+	return &Gray{Pix: px, W: w, H: h}, true
+}
 
-	invisible := inst.invisibleFrac(page)
-	A := inst.deviceAffine(page, pw, ph)
-	tp := C.pdfium_text_load(inst.api, page)
-	if tp == nil {
-		return g, nil, 0, 0, invisible, true
+// quarter is textlayer._quarter: quarter turns (counter-clockwise, as np.rot90)
+// that a baseline running in direction (d0, d1) (rendered frame, y down) is
+// turned from left to right; ok=false when it is not a quarter turn.
+func quarter(d0, d1 float64) (int, bool) {
+	q := math.Atan2(d1, d0) / (math.Pi / 2)
+	k := int(math.Round(q))
+	if math.Abs(q-float64(k)) < 0.01 {
+		return ((k % 4) + 4) % 4, true
 	}
-	defer C.pdfium_text_close(inst.api, tp)
-	nc := int(C.pdfium_text_count(inst.api, tp))
-	var cs []TextChar
+	return 0, false
+}
+
+// turnFrame is textlayer._turn_frame: rendered-frame points in the frame of the
+// page turned upright again (np.rot90(gray, -turn)).
+func turnFrame(px, py, W, H float64, turn int) (float64, float64) {
+	switch turn {
+	case 1:
+		return H - py, px
+	case 2:
+		return W - px, H - py
+	case 3:
+		return py, W - px
+	}
+	return px, py
+}
+
+// extract reads the page's text-layer runs and stats (textlayer.extract_runs /
+// read_text_layer). Boxes are in pixels at scale; the runs read left to right
+// once the page is turned upright by `turn` quarter turns, and are in the frame
+// turned by `frame` (a vertical page has upright characters (turn 0) read in a
+// turned frame (3)). The verdict (Trusted/Reason) is filled in.
+func (p *pdfPage) extract(scale float64, turn, frame int) *TextLayer {
+	invisible := p.inst.invisibleFrac(p.page)
+	if invisible > maxInvisibleFrac {
+		return &TextLayer{Invisible: true}
+	}
+	pw, ph := p.size()
+	A := p.inst.deviceAffine(p.page, pw, ph)
+	// L = F @ A[:, :2] @ F, F = diag(1, -1): pdfium's char angle turns clockwise
+	// with y up, _quarter counts the other way with y down.
+	L00, L01, L10, L11 := A[0], -A[1], -A[3], A[4]
+	tp := C.pdfium_text_load(p.inst.api, p.page)
+	if tp == nil {
+		return &TextLayer{}
+	}
+	defer C.pdfium_text_close(p.inst.api, tp)
+	nc := int(C.pdfium_text_count(p.inst.api, tp))
+
+	type charRec struct {
+		c      rune
+		q      int        // quarter turn relative to `turn` (cur_q)
+		vis    bool       // its center is on the page (not beyond a crop box)
+		box    [4]float64 // rendered-frame points (pre frame remap)
+		cx, cy float64    // rendered-frame center, points
+	}
+	var recs []charRec
+	var qs []int
 	var breaks []int
-	nChars, nRot, nBad := 0, 0, 0
+	badCache := map[rune]int{}
+	chars, nRot, nBad, offPage := 0, 0, 0, 0
+	var quarters [4]int
+	curQ := 0
+	low := false
 	for i := 0; i < nc; i++ {
-		c := rune(C.pdfium_text_unicode(inst.api, tp, C.int(i)))
-		if c == '\r' || c == '\n' {
-			breaks = append(breaks, len(cs))
+		if low {
+			low = false
 			continue
 		}
-		if c == 0x02 {
+		u := rune(C.pdfium_text_unicode(p.inst.api, tp, C.int(i)))
+		var u2 rune
+		if u >= 0xD800 && u <= 0xDBFF && i+1 < nc {
+			u2 = rune(C.pdfium_text_unicode(p.inst.api, tp, C.int(i+1)))
+		}
+		c, used2 := codePoint(u, u2)
+		low = used2
+		if c == '\r' || c == '\n' {
+			breaks = append(breaks, len(recs))
+			continue
+		}
+		if c == 0x02 { // pdfium's mark for a hyphen at a line break
 			c = '-'
 		}
 		if !unicode.IsSpace(c) {
-			nChars++
-			nBad += badCharCount(string(c))
-			a := float64(C.pdfium_text_charangle(inst.api, tp, C.int(i)))
-			d0 := A[0]*math.Cos(a) + A[1]*math.Sin(a)
-			d1 := A[3]*math.Cos(a) + A[4]*math.Sin(a)
-			if !(d0 > 0 && math.Abs(d1) <= 1e-3*math.Max(math.Abs(d0), 1e-9)) {
-				nRot++
-				breaks = append(breaks, len(cs))
+			chars++
+			k, ok := badCache[c]
+			if !ok {
+				k = badCharCount(string(c))
+				badCache[c] = k
+			}
+			nBad += k
+			a := float64(C.pdfium_text_charangle(p.inst.api, tp, C.int(i)))
+			ca, sa := math.Cos(a), math.Sin(a)
+			q, isq := quarter(L00*ca+L01*sa, L10*ca+L11*sa)
+			if isq {
+				quarters[q]++
+			}
+			if !isq || q != turn {
+				nRot++ // not upright on the rendered page
+			}
+			if !isq { // not a quarter turn: not read
+				breaks = append(breaks, len(recs))
 				continue
 			}
+			curQ = ((q - turn) % 4 + 4) % 4
 		}
 		var bl, br, bb, bt C.double
-		C.pdfium_text_charbox(inst.api, tp, C.int(i), &bl, &br, &bb, &bt)
-		// map the 4 corners of (l,b,r,t) through the affine, then to pixels
-		var xs = [4]float64{float64(bl), float64(br), float64(bl), float64(br)}
-		var ys = [4]float64{float64(bb), float64(bb), float64(bt), float64(bt)}
+		if C.pdfium_text_charbox(p.inst.api, tp, C.int(i), &bl, &br, &bb, &bt) == 0 {
+			breaks = append(breaks, len(recs))
+			continue
+		}
+		l, r, b, t := float64(bl), float64(br), float64(bb), float64(bt)
+		xsv := [4]float64{l, r, l, r}
+		ysv := [4]float64{b, b, t, t}
+		var cr charRec
+		cr.c, cr.q = c, curQ
 		minx, miny := math.Inf(1), math.Inf(1)
 		maxx, maxy := math.Inf(-1), math.Inf(-1)
 		for k := 0; k < 4; k++ {
-			fx := A[0]*xs[k] + A[1]*ys[k] + A[2]
-			fy := A[3]*xs[k] + A[4]*ys[k] + A[5]
+			fx := A[0]*xsv[k] + A[1]*ysv[k] + A[2]
+			fy := A[3]*xsv[k] + A[4]*ysv[k] + A[5]
 			minx, maxx = math.Min(minx, fx), math.Max(maxx, fx)
 			miny, maxy = math.Min(miny, fy), math.Max(maxy, fy)
 		}
-		box := [4]float64{minx * scale, miny * scale, maxx * scale, maxy * scale}
-		// off-page (beyond the crop box) characters are dropped
-		cx, cy := (minx+maxx)/2, (miny+maxy)/2
-		if cx < 0 || cx > pw || cy < 0 || cy > ph {
-			continue
+		cr.box = [4]float64{minx, miny, maxx, maxy}
+		cr.cx, cr.cy = (minx+maxx)/2, (miny+maxy)/2
+		// Characters outside the rendered frame (beyond a crop box) are not on
+		// the page: they are dropped from the runs but still cut/step.
+		cr.vis = cr.cx >= 0 && cr.cx <= pw && cr.cy >= 0 && cr.cy <= ph
+		if !cr.vis {
+			offPage++
 		}
-		cs = append(cs, TextChar{Ch: c, Box: box})
+		recs = append(recs, cr)
+		qs = append(qs, curQ)
 	}
-	// cut into runs at the breaks
-	cuts := append(append([]int(nil), breaks...), len(cs))
+	st := TextStats{Chars: chars, Rotated: nRot, Bad: nBad, Quarters: quarters,
+		OffPage: offPage, Turn: turn, Frame: frame}
+
+	// Steps between neighbouring upright characters of a run.
+	n := len(recs)
+	down, right := 0, 0
+	if n > 1 {
+		okEnd := make([]bool, n-1)
+		for i := range okEnd {
+			okEnd[i] = true
+		}
+		for _, b := range breaks {
+			if b > 0 && b < n {
+				okEnd[b-1] = false
+			}
+		}
+		for i := 0; i+1 < n; i++ {
+			if !okEnd[i] || qs[i] != 0 || qs[i+1] != 0 ||
+				unicode.IsSpace(recs[i].c) || unicode.IsSpace(recs[i+1].c) {
+				continue
+			}
+			h := math.Max(recs[i].box[3]-recs[i].box[1], 1e-3)
+			dx, dy := recs[i+1].cx-recs[i].cx, recs[i+1].cy-recs[i].cy
+			if math.Abs(dx) > 3*h || math.Abs(dy) > 3*h {
+				continue
+			}
+			if dy > 0.3*h && math.Abs(dx) < 0.3*h {
+				down++
+			} else if math.Abs(dx) > 0.3*h && math.Abs(dy) < 0.3*h {
+				right++
+			}
+		}
+	}
+	st.Steps = [2]int{down, right}
+
+	// Cuts: run ends, quarter-turn changes, end of page.
+	cutsSet := map[int]bool{}
+	for _, b := range breaks {
+		cutsSet[b] = true
+	}
+	for i := 1; i < n; i++ {
+		if qs[i] != qs[i-1] {
+			cutsSet[i] = true
+		}
+	}
+	cutsSet[n] = true
+	var cuts []int
+	for c := range cutsSet {
+		cuts = append(cuts, c)
+	}
 	sort.Ints(cuts)
+
 	var runs []TextRun
 	start := 0
 	for _, end := range cuts {
-		if end > len(cs) {
-			end = len(cs)
+		if end > n {
+			end = n
 		}
 		if end < start {
 			continue
 		}
-		seg := cs[start:end]
+		q := 0
+		if start < len(qs) {
+			q = qs[start]
+		}
+		// The segment's on-page characters in pixels, in (frame-remapped) boxes.
+		var seg []TextChar
+		for i := start; i < end; i++ {
+			if !recs[i].vis {
+				continue
+			}
+			bx := recs[i].box
+			if frame != 0 {
+				x0, y0 := turnFrame(bx[0], bx[1], pw, ph, frame)
+				x1, y1 := turnFrame(bx[2], bx[3], pw, ph, frame)
+				bx = [4]float64{math.Min(x0, x1), math.Min(y0, y1), math.Max(x0, x1), math.Max(y0, y1)}
+			}
+			seg = append(seg, TextChar{Ch: recs[i].c, Box: [4]float64{
+				bx[0] * scale, bx[1] * scale, bx[2] * scale, bx[3] * scale}})
+		}
 		start = end
 		seg = foldSpacingAccents(seg)
 		var ink []TextChar
@@ -529,21 +710,57 @@ func (inst *pdfiumInst) process(doc unsafe.Pointer, index int, scale float64) (*
 		}
 		box := [4]float64{math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)}
 		var sb strings.Builder
-		var chars []TextChar
 		for _, c := range seg {
 			sb.WriteRune(c.Ch)
-			chars = append(chars, c)
-		}
-		for _, c := range ink {
+			if unicode.IsSpace(c.Ch) {
+				continue
+			}
 			box[0] = math.Min(box[0], c.Box[0])
 			box[1] = math.Min(box[1], c.Box[1])
 			box[2] = math.Max(box[2], c.Box[2])
 			box[3] = math.Max(box[3], c.Box[3])
 		}
-		runs = append(runs, TextRun{Text: strings.Join(strings.Fields(sb.String()), " "), Box: box, Chars: chars})
+		if frame != turn && q == 0 && len(ink) > 1 {
+			// A vertical page read turned: a horizontal run (a header, a
+			// caption) runs top to bottom here, so it is a sideways line.
+			dx := math.Abs(ink[len(ink)-1].Box[0] - ink[0].Box[0])
+			dy := math.Abs(ink[len(ink)-1].Box[1] - ink[0].Box[1])
+			if dy > 2*dx {
+				q = 1
+			}
+		}
+		runs = append(runs, TextRun{
+			Text:    strings.Join(strings.Fields(sb.String()), " "),
+			Box:     box,
+			Chars:   seg,
+			Quarter: q,
+			Seq:     len(runs),
+		})
 	}
-	return g, runs, nChars, nRot, invisible, true
+	layer := &TextLayer{Runs: make([]TextRun, 0, len(runs)), Chars: chars, Stats: st}
+	for _, r := range runs {
+		if r.Quarter != 0 {
+			layer.Rotated = append(layer.Rotated, r)
+		} else {
+			layer.Runs = append(layer.Runs, r)
+		}
+	}
+	return layer
 }
+
+// codePoint is textlayer.code_point: the character of pdfium's UTF-16 code unit
+// u (u2: the next unit), and whether it used u2. A character above U+FFFF comes
+// as two surrogates; a lone surrogate becomes U+FFFD.
+func codePoint(u, u2 rune) (rune, bool) {
+	if u >= 0xD800 && u <= 0xDBFF && u2 >= 0xDC00 && u2 <= 0xDFFF {
+		return 0x10000 + ((u - 0xD800) << 10) + (u2 - 0xDC00), true
+	}
+	if u >= 0xD800 && u <= 0xDFFF {
+		return 0xFFFD, false
+	}
+	return u, false
+}
+
 
 // foldSpacingAccents composes a spacing diacritic that a PDF text layer places
 // next to its base letter. pdfium emits the accent glyph as a separate character

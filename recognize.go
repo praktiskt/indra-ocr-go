@@ -139,9 +139,28 @@ func (o *OCR) lineGroups(crops []lineCrop) ([]string, []bool) {
 	return out, sure
 }
 
+// boxGroups is document.box_groups: line_groups for line boxes on the page
+// (crops as recognize makes them); every line is "base" when the model folder
+// has no script.onnx.
+func (o *OCR) boxGroups(g *Gray, boxes [][4]float32) ([]string, []bool) {
+	if o.s.script == nil || len(boxes) == 0 {
+		out := make([]string, len(boxes))
+		sure := make([]bool, len(boxes))
+		for i := range out {
+			out[i] = "base"
+		}
+		return out, sure
+	}
+	var dark []bool
+	if o.m.RecWindow > 1 {
+		dark = lineDarkness(g, boxes)
+	}
+	crops := o.cropLines(g, boxes, o.m.RecHeight, 1, dark)
+	return o.lineGroups(crops)
+}
+
 // int64Widths lifts []int widths to []int64.
-func int64Widths(ws []int) []int64 {
-	out := make([]int64, len(ws))
+func int64Widths(ws []int) []int64 {	out := make([]int64, len(ws))
 	for i, w := range ws {
 		out[i] = int64(w)
 	}

@@ -10,7 +10,7 @@ import (
 func TestBadCharCount(t *testing.T) {
 	cases := map[string]int{
 		"hello":        0,
-		"a\tb\nc":      0,
+		"a\tb\nc":      1, // newline is Cc (pdfium consumes it before this check)
 		"\uFFFD":       1, // replacement
 		"\uE000\uE001": 2, // private use
 		"a\x01b":       1, // control
@@ -55,14 +55,22 @@ func TestAssignRuns(t *testing.T) {
 		},
 	}
 	out, lost := assignRuns([]TextRun{run}, boxes)
-	if lost != 0 || out[0] != "a" || out[1] != "b" {
+	if lost != 0 || tokText(out[0]) != "a" || tokText(out[1]) != "b" {
 		t.Fatalf("assignRuns = %v lost=%d, want [a b]", out, lost)
 	}
 	// whole-run placement (no per-char boxes)
 	out2, _ := assignRuns([]TextRun{{Text: "hello", Box: [4]float64{11, 2, 19, 8}}}, boxes)
-	if out2[0] != "" || out2[1] != "hello" {
+	if tokText(out2[0]) != "" || tokText(out2[1]) != "hello" {
 		t.Fatalf("whole-run assignRuns = %v, want [ hello]", out2)
 	}
+}
+
+func tokText(ts []token) string {
+	var sb strings.Builder
+	for _, tk := range ts {
+		sb.WriteString(tk.Ch)
+	}
+	return sb.String()
 }
 
 // TestCallTextWithLayer feeds CallText a text layer built from the page's own
@@ -135,6 +143,17 @@ func inkGray(box [4]float64) *Gray {
 	return g
 }
 
+// useLayer replicates document.pdf_page's text-layer decision: mode="text"
+// forces the layer; "auto" trusts it, or rescues it when the recognizer cannot
+// read the script (but never a broken font map).
+func useLayer(o *OCR, g *Gray, tl *TextLayer, mode string) bool {
+	if mode == "text" {
+		return true
+	}
+	trusted, reason := o.readTextLayer(g, tl)
+	return trusted || (reason != brokenFontMap && !o.readableText(tl.Runs))
+}
+
 // TestUseTextLayer covers document.pdf_page's decision: mode="text" forces the
 // layer; "auto" trusts it, or rescues it when the recognizer cannot read the
 // script (but never a broken font map).
@@ -146,24 +165,24 @@ func TestUseTextLayer(t *testing.T) {
 	arabic := []TextRun{{Text: "مرحبا", Box: box}}
 
 	// mode="text" uses the layer even when the trust checks fail
-	if !ocr.useTextLayer(g, &TextLayer{Runs: latin, Chars: 5, Invisible: true}, "text") {
+	if !useLayer(ocr, g, &TextLayer{Runs: latin, Chars: 5, Invisible: true}, "text") {
 		t.Errorf(`mode="text" with an untrusted layer: want use`)
 	}
 	// auto: a trusted layer is used
-	if !ocr.useTextLayer(g, &TextLayer{Runs: latin, Chars: 5}, "auto") {
+	if !useLayer(ocr, g, &TextLayer{Runs: latin, Chars: 5}, "auto") {
 		t.Errorf("auto with a trusted layer: want use")
 	}
 	// auto: untrusted but the script is unreadable -> use (beats OCR)
-	if !ocr.useTextLayer(g, &TextLayer{Runs: arabic, Chars: 5, Invisible: true}, "auto") {
+	if !useLayer(ocr, g, &TextLayer{Runs: arabic, Chars: 5, Invisible: true}, "auto") {
 		t.Errorf("auto with an unreadable untrusted layer: want use")
 	}
 	// auto: untrusted and the script is readable -> OCR
-	if ocr.useTextLayer(g, &TextLayer{Runs: latin, Chars: 5, Invisible: true}, "auto") {
+	if useLayer(ocr, g, &TextLayer{Runs: latin, Chars: 5, Invisible: true}, "auto") {
 		t.Errorf("auto with a readable untrusted layer: want OCR")
 	}
 	// auto: a broken font map is never rescued by the unreadable rule
 	broken := &TextLayer{Runs: []TextRun{{Text: "\uFFFDمرحبا", Box: box}}, Chars: 6}
-	if ocr.useTextLayer(g, broken, "auto") {
+	if useLayer(ocr, g, broken, "auto") {
 		t.Errorf("auto with a broken font map: want OCR")
 	}
 }
