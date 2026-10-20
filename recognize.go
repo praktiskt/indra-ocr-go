@@ -226,18 +226,17 @@ func (o *OCR) recognizeSel(out []recLine, boxes [][4]float32, band, tall []lineC
 				}
 				conf /= float64(len(keptP))
 			}
-			stepT := keptT
+			stepT, tokIDs := keptT, kept
 			if lm != nil && MinConf <= conf && conf < gate {
 				// CTC prefix beam search with the language model breaks close
 				// calls; its steps replace the greedy peaks.
 				ids2, steps := lmBeamSearch(
 					ro.Blank[base:base+ln], ro.TopV[base*ro.K:base*ro.K+ln*ro.K],
 					ro.TopI[base*ro.K:base*ro.K+ln*ro.K], ln, ro.K, lm, alpha, beta, LMBeam, LMCandFloor)
-				ids = ids2
-				stepT = steps
+				tokIDs, stepT = ids2, steps
 			}
-			toks := make([]token, 0, len(ids))
-			for q, id := range ids {
+			toks := make([]token, 0, len(tokIDs))
+			for q, id := range tokIDs {
 				x := ix0 + (float64(stepT[q])+0.5)*stride*f
 				if gr.asChars {
 					ch := ""
