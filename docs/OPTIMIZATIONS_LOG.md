@@ -77,6 +77,15 @@ delta / baseline.
   the beam search was silently off. Entries are now walked with their
   name/extra/comment lengths; all three LMs load. FUNSD is LM-neutral
   (0.8685 -> 0.8680); the LMs matter on messy text.
+- **Gauntlet (recreated from the spec; scratch, `/tmp/opencode/hard`, 150
+  pages):** int8 vs FP32 v1.1 is neutral — sroie 0.8514/0.8229, cord
+  0.6687/0.6871, xfund 0.9072/0.9012 (micro word recall, threads=2). The
+  synthetic `funsd-degraded`/`funsd-photo` generators were rebuilt differently
+  from the originals, so their absolute scores (0.67/0.57) are **not**
+  comparable to the historical 0.78/0.76; only the int8-vs-FP32 differential is
+  meaningful there (neutral). xfund sits below its old 0.9601: the new v1.1
+  recognizers change CJK output, and the Latin-alnum scorer is blind to CJK
+  (a clean zh page reads correctly but scores 0.68).
 
 ### PDFium concurrency: one library instance per concurrent document — `v0.28.1`
 

@@ -134,6 +134,12 @@ Reference scores (threads=2):
 | funsd-photo | 0.7579 | 655 |
 | cord | 0.7055 | 272 |
 
+**v1.1.0 baseline (int8 shipped / FP32, threads=2):** sroie 0.8514/0.8229,
+cord 0.6687/0.6871, xfund 0.9072/0.9012; `funsd-degraded`/`funsd-photo`
+generators were rebuilt (harsher) so their absolute scores (0.67/0.57) are not
+comparable to the historical rows — use them as a differential only. xfund's
+Latin-alnum scorer is blind to CJK, so a correct zh page can score ~0.68.
+
 Compare current runs against recall; `avg ms` is a rough guide (machine and
 thermal state move it ~20%).
 
