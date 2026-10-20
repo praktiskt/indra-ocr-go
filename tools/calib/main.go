@@ -56,6 +56,7 @@ func main() {
 	corpus := flag.String("corpus", os.Getenv("INDRA_CORPUS_DIR"), "dir with an img/ subdir of PNG pages")
 	batch := flag.Int("batch", 64, "width bucket size when packing crops")
 	limit := flag.Int("limit", 1<<30, "max pages to process")
+	window := flag.Int("window", 0, "crop window (0 = the model's rec window; 1 = the line band for group recognizers)")
 	flag.Parse()
 
 	if *corpus == "" {
@@ -103,6 +104,9 @@ func main() {
 		widths := make([]int, len(boxes))
 		darks := ocr.LineDark(g2, boxes)
 		win := ocr.RecWindow()
+		if *window > 0 {
+			win = *window
+		}
 		h := ocr.RecHeight()
 		for i, b := range boxes {
 			fb := [4]float64{float64(b[0]), float64(b[1]), float64(b[2]), float64(b[3])}

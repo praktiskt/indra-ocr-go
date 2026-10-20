@@ -49,8 +49,8 @@ from onnxruntime.quantization import (
 STEM_PREFIXES = ["/rec/stem", "/rec/HardSwish", "/rec/Mul"]
 
 
-def load_calib(directory):
-    """Calibration batches written by tools/calib: x_*.raw (float32, [B,1,32,W])
+def load_calib(directory, rec_height=32):
+    """Calibration batches written by tools/calib: x_*.raw (float32, [B,1,H,W])
     and w_*.raw (int64 widths [B])."""
     samples = []
     for wf in sorted(glob.glob(os.path.join(directory, "w_*.raw"))):
@@ -60,8 +60,8 @@ def load_calib(directory):
         b = len(w)
         if b == 0:
             continue
-        wdt = x.size // (b * 32)
-        samples.append((x.reshape(b, 1, 32, wdt), w))
+        wdt = x.size // (b * rec_height)
+        samples.append((x.reshape(b, 1, rec_height, wdt), w))
     return samples
 
 
@@ -253,9 +253,11 @@ def main():
                     help="leading inverted-residual blocks kept FP32 (default 2; 0 = quantize all)")
     ap.add_argument("--no-promote", action="store_true", help="skip the Conv1d->Conv2d NCHWc promotion")
     ap.add_argument("--no-fuse-head", action="store_true", help="skip the softmax-max confidence-head fusion")
+    ap.add_argument("--rec-height", type=int, default=32,
+                    help="recognizer input height (32 band; 96 for the windowed base rec)")
     args = ap.parse_args()
 
-    samples = load_calib(args.calib)
+    samples = load_calib(args.calib, args.rec_height)
     if not samples:
         sys.exit(f"no calibration batches in {args.calib}")
     lines = sum(len(w) for _, w in samples)
