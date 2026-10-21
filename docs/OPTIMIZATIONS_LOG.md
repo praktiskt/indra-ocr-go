@@ -51,6 +51,14 @@ delta / baseline.
   pixels differ), which flips a borderline pixel and occasionally a connected
   component. **A/B against upstream is the check the corpus cannot do** — it
   compares *order and wording*, not just word presence.
+- **PDF text layer A/B** (`testdata/multipage12.pdf`, 12 pages, upstream
+  `indra-ocr` vs the Go `CallPDF`, FP32 both sides): the page sources match
+  12/12 (`text`/`hybrid`) and **38/40 lines are character-identical**. With
+  the shipped int8 build only 11/40 match: on 5 pages int8 reads a tiny,
+  otherwise empty box as a character ("D"), which turns a `text` page into a
+  `hybrid` one. That is the int8 noise floor (the same conf-boundary effect
+  the gauntlet sees on receipts), not a text-layer bug — with FP32 the pages
+  match upstream exactly.
 
 ### Upstream model upgrade to indra v1.1.0 — `v0.29.0`
 
@@ -100,14 +108,12 @@ delta / baseline.
   ~1.7pp between FP32 and int8, but they hold 175/163 words — three words —
   so the per-page A/B on the 199-page corpus is the number that decides.
 - **Speed and memory** (deployment config: pool = 8 workers x 1 intra-op
-  thread, 199-page FUNSD corpus, this 16-core box, best of 2):
-  FP32 `rec`+`order` **15.6 pages/s, peak RSS 3.08 GB** →
-  int8 **16.8 pages/s, peak RSS 2.89 GB** (+8% pages/s, −6% RSS; the embedded
-  models shrink by 5 MB). Smaller than the v0.3.2 recipe's +25%, because the v1.1
-  base rec gained the `/rec/context` module and cannot use the NCHWc promotion
-  that made the old graph fast. **These two numbers were taken on a machine
-  with other CPU-heavy work running — re-measure on an idle box before
-  quoting them.**
+  thread, 199-page FUNSD corpus, 16-core box, idle, best of 3 runs x 2 process
+  runs): FP32 `rec`+`order`+groups **13.9 pages/s, peak RSS 3.26 GB** →
+  int8 **16.6 pages/s, peak RSS 3.07 GB** (**+19% pages/s, −6% RSS**; the
+  embedded models shrink by 18 MB). Smaller than the v0.3.2 recipe's +25%,
+  because the v1.1 base rec gained the `/rec/context` module and cannot use
+  the NCHWc promotion that made the old graph fast.
 - **Evidence (this machine, FUNSD 199-page guard, threads=2):** FP32 v1.1.0
   `rec` 0.8658 and int8 `rec` 0.8680 when the upgrade landed (the LM was
   broken then — see `v0.31.0`); with the LM fixed the shipped int8 build
