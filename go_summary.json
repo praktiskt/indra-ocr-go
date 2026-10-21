@@ -1,0 +1,909 @@
+{
+ "headline": {
+  "score": 0.8214201877934273,
+  "families": {
+   "text": {
+    "score": 0.6845070422535211,
+    "tests": 355,
+    "documents": 90
+   },
+   "layout": {
+    "score": 0.9583333333333334,
+    "tests": 144,
+    "documents": 34
+   }
+  },
+  "documents": 90
+ },
+ "html": {
+  "score": 0.6845070422535211,
+  "tests": 355,
+  "unsupported": 0,
+  "errors": 0,
+  "documents": 90,
+  "per_test_type": {
+   "present": 0.6844106463878327,
+   "order": 0.6847826086956522
+  },
+  "per_tag": {
+   "Latn": {
+    "score": 0.578125,
+    "tests": 128,
+    "pages": 47,
+    "documents": 40
+   },
+   "heading": {
+    "score": 0.68,
+    "tests": 50,
+    "pages": 29,
+    "documents": 22
+   },
+   "list": {
+    "score": 0.7297297297297297,
+    "tests": 37,
+    "pages": 16,
+    "documents": 13
+   },
+   "Armn": {
+    "score": 1.0,
+    "tests": 36,
+    "pages": 8,
+    "documents": 4
+   },
+   "multi_column": {
+    "score": 0.8,
+    "tests": 35,
+    "pages": 13,
+    "documents": 9
+   },
+   "Ethi": {
+    "score": 1.0,
+    "tests": 31,
+    "pages": 7,
+    "documents": 5
+   },
+   "Grek": {
+    "score": 0.14285714285714285,
+    "tests": 28,
+    "pages": 8,
+    "documents": 5
+   },
+   "hyw": {
+    "score": 1.0,
+    "tests": 20,
+    "pages": 4,
+    "documents": 2
+   },
+   "Thai": {
+    "score": 1.0,
+    "tests": 19,
+    "pages": 8,
+    "documents": 6
+   },
+   "amh": {
+    "score": 1.0,
+    "tests": 19,
+    "pages": 4,
+    "documents": 2
+   },
+   "grc": {
+    "score": 0.0,
+    "tests": 18,
+    "pages": 4,
+    "documents": 2
+   },
+   "Hebr": {
+    "score": 0.9411764705882353,
+    "tests": 17,
+    "pages": 6,
+    "documents": 4
+   },
+   "aaz": {
+    "score": 0.058823529411764705,
+    "tests": 17,
+    "pages": 4,
+    "documents": 2
+   },
+   "hye": {
+    "score": 1.0,
+    "tests": 16,
+    "pages": 4,
+    "documents": 2
+   },
+   "Arab": {
+    "score": 0.7692307692307693,
+    "tests": 13,
+    "pages": 8,
+    "documents": 4
+   },
+   "Beng": {
+    "score": 0.5384615384615384,
+    "tests": 13,
+    "pages": 5,
+    "documents": 3
+   },
+   "bzi": {
+    "score": 1.0,
+    "tests": 13,
+    "pages": 4,
+    "documents": 2
+   },
+   "hau": {
+    "score": 0.8333333333333334,
+    "tests": 12,
+    "pages": 4,
+    "documents": 2
+   },
+   "tir": {
+    "score": 1.0,
+    "tests": 12,
+    "pages": 3,
+    "documents": 3
+   },
+   "arb": {
+    "score": 0.7272727272727273,
+    "tests": 11,
+    "pages": 8,
+    "documents": 4
+   },
+   "Copt": {
+    "score": 0.0,
+    "tests": 10,
+    "pages": 2,
+    "documents": 1
+   },
+   "Hang": {
+    "score": 1.0,
+    "tests": 10,
+    "pages": 2,
+    "documents": 2
+   },
+   "aak": {
+    "score": 0.0,
+    "tests": 10,
+    "pages": 2,
+    "documents": 1
+   },
+   "cop": {
+    "score": 0.0,
+    "tests": 10,
+    "pages": 2,
+    "documents": 1
+   },
+   "kor": {
+    "score": 1.0,
+    "tests": 10,
+    "pages": 2,
+    "documents": 2
+   },
+   "ron": {
+    "score": 0.7,
+    "tests": 10,
+    "pages": 2,
+    "documents": 2
+   },
+   "vie": {
+    "score": 0.7,
+    "tests": 10,
+    "pages": 2,
+    "documents": 2
+   },
+   "Hani": {
+    "score": 1.0,
+    "tests": 9,
+    "pages": 3,
+    "documents": 3
+   },
+   "Laoo": {
+    "score": 1.0,
+    "tests": 9,
+    "pages": 2,
+    "documents": 2
+   },
+   "isl": {
+    "score": 1.0,
+    "tests": 9,
+    "pages": 2,
+    "documents": 2
+   },
+   "lao": {
+    "score": 1.0,
+    "tests": 9,
+    "pages": 2,
+    "documents": 2
+   },
+   "Knda": {
+    "score": 1.0,
+    "tests": 8,
+    "pages": 2,
+    "documents": 2
+   },
+   "hbo": {
+    "score": 1.0,
+    "tests": 8,
+    "pages": 2,
+    "documents": 1
+   },
+   "kan": {
+    "score": 1.0,
+    "tests": 8,
+    "pages": 2,
+    "documents": 2
+   },
+   "Cyrl": {
+    "score": 0.8571428571428571,
+    "tests": 7,
+    "pages": 3,
+    "documents": 2
+   },
+   "Deva": {
+    "score": 0.7142857142857143,
+    "tests": 7,
+    "pages": 4,
+    "documents": 2
+   },
+   "Geor": {
+    "score": 1.0,
+    "tests": 7,
+    "pages": 2,
+    "documents": 2
+   },
+   "asm": {
+    "score": 0.14285714285714285,
+    "tests": 7,
+    "pages": 3,
+    "documents": 2
+   },
+   "bel": {
+    "score": 0.8571428571428571,
+    "tests": 7,
+    "pages": 3,
+    "documents": 2
+   },
+   "bho": {
+    "score": 0.7142857142857143,
+    "tests": 7,
+    "pages": 4,
+    "documents": 2
+   },
+   "ell": {
+    "score": 0.14285714285714285,
+    "tests": 7,
+    "pages": 3,
+    "documents": 2
+   },
+   "kat": {
+    "score": 1.0,
+    "tests": 7,
+    "pages": 2,
+    "documents": 2
+   },
+   "yor": {
+    "score": 0.0,
+    "tests": 7,
+    "pages": 2,
+    "documents": 2
+   },
+   "Guru": {
+    "score": 0.6666666666666666,
+    "tests": 6,
+    "pages": 2,
+    "documents": 2
+   },
+   "Mtei": {
+    "score": 0.0,
+    "tests": 6,
+    "pages": 2,
+    "documents": 2
+   },
+   "ben": {
+    "score": 1.0,
+    "tests": 6,
+    "pages": 2,
+    "documents": 1
+   },
+   "cmn": {
+    "score": 1.0,
+    "tests": 6,
+    "pages": 2,
+    "documents": 2
+   },
+   "mni": {
+    "score": 0.0,
+    "tests": 6,
+    "pages": 2,
+    "documents": 2
+   },
+   "pan": {
+    "score": 0.6666666666666666,
+    "tests": 6,
+    "pages": 2,
+    "documents": 2
+   },
+   "tha": {
+    "score": 1.0,
+    "tests": 6,
+    "pages": 4,
+    "documents": 4
+   },
+   "deu": {
+    "score": 1.0,
+    "tests": 5,
+    "pages": 1,
+    "documents": 1
+   },
+   "form": {
+    "score": 0.8,
+    "tests": 5,
+    "pages": 3,
+    "documents": 3
+   },
+   "ydd": {
+    "score": 0.8,
+    "tests": 5,
+    "pages": 1,
+    "documents": 1
+   },
+   "Mlym": {
+    "score": 0.5,
+    "tests": 4,
+    "pages": 2,
+    "documents": 2
+   },
+   "ara": {
+    "score": 0.5,
+    "tests": 4,
+    "pages": 2,
+    "documents": 1
+   },
+   "footnote": {
+    "score": 0.25,
+    "tests": 4,
+    "pages": 2,
+    "documents": 1
+   },
+   "fra": {
+    "score": 1.0,
+    "tests": 4,
+    "pages": 1,
+    "documents": 1
+   },
+   "heb": {
+    "score": 1.0,
+    "tests": 4,
+    "pages": 3,
+    "documents": 2
+   },
+   "mal": {
+    "score": 0.5,
+    "tests": 4,
+    "pages": 2,
+    "documents": 2
+   },
+   "Gujr": {
+    "score": 0.0,
+    "tests": 3,
+    "pages": 2,
+    "documents": 1
+   },
+   "Hira": {
+    "score": 1.0,
+    "tests": 3,
+    "pages": 1,
+    "documents": 1
+   },
+   "Kali": {
+    "score": 0.0,
+    "tests": 3,
+    "pages": 2,
+    "documents": 2
+   },
+   "ces": {
+    "score": 1.0,
+    "tests": 3,
+    "pages": 2,
+    "documents": 2
+   },
+   "fin": {
+    "score": 1.0,
+    "tests": 3,
+    "pages": 2,
+    "documents": 2
+   },
+   "guj": {
+    "score": 0.0,
+    "tests": 3,
+    "pages": 2,
+    "documents": 1
+   },
+   "jpn": {
+    "score": 1.0,
+    "tests": 3,
+    "pages": 1,
+    "documents": 1
+   },
+   "kyu": {
+    "score": 0.0,
+    "tests": 3,
+    "pages": 2,
+    "documents": 2
+   },
+   "lit": {
+    "score": 0.3333333333333333,
+    "tests": 3,
+    "pages": 2,
+    "documents": 2
+   },
+   "pnt": {
+    "score": 1.0,
+    "tests": 3,
+    "pages": 1,
+    "documents": 1
+   },
+   "Kana": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "Khmr": {
+    "score": 0.5,
+    "tests": 2,
+    "pages": 2,
+    "documents": 2
+   },
+   "Mymr": {
+    "score": 0.0,
+    "tests": 2,
+    "pages": 2,
+    "documents": 2
+   },
+   "Olck": {
+    "score": 0.0,
+    "tests": 2,
+    "pages": 2,
+    "documents": 2
+   },
+   "aai": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 2,
+    "documents": 1
+   },
+   "caption": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 2,
+    "documents": 1
+   },
+   "ita": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "khm": {
+    "score": 0.5,
+    "tests": 2,
+    "pages": 2,
+    "documents": 2
+   },
+   "mya": {
+    "score": 0.0,
+    "tests": 2,
+    "pages": 2,
+    "documents": 2
+   },
+   "pol": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "sat": {
+    "score": 0.0,
+    "tests": 2,
+    "pages": 2,
+    "documents": 2
+   },
+   "tiny": {
+    "score": 0.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "Orya": {
+    "score": 0.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "aau": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "header_footer": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "ory": {
+    "score": 0.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "por": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "table": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "tur": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   }
+  }
+ },
+ "blocks": {
+  "score": 0.9583333333333334,
+  "tests": 144,
+  "unsupported": 0,
+  "errors": 0,
+  "documents": 34,
+  "per_test_type": {
+   "layout_kind": 0.9583333333333334
+  },
+  "per_tag": {
+   "Latn": {
+    "score": 0.9322033898305084,
+    "tests": 59,
+    "pages": 17,
+    "documents": 16
+   },
+   "heading": {
+    "score": 0.8378378378378378,
+    "tests": 37,
+    "pages": 26,
+    "documents": 26
+   },
+   "isl": {
+    "score": 1.0,
+    "tests": 12,
+    "pages": 2,
+    "documents": 2
+   },
+   "table": {
+    "score": 1.0,
+    "tests": 12,
+    "pages": 3,
+    "documents": 3
+   },
+   "Ethi": {
+    "score": 0.9090909090909091,
+    "tests": 11,
+    "pages": 3,
+    "documents": 2
+   },
+   "Grek": {
+    "score": 1.0,
+    "tests": 11,
+    "pages": 3,
+    "documents": 3
+   },
+   "Beng": {
+    "score": 1.0,
+    "tests": 10,
+    "pages": 2,
+    "documents": 2
+   },
+   "aaz": {
+    "score": 0.9,
+    "tests": 10,
+    "pages": 2,
+    "documents": 2
+   },
+   "multi_column": {
+    "score": 0.9,
+    "tests": 10,
+    "pages": 7,
+    "documents": 5
+   },
+   "grc": {
+    "score": 1.0,
+    "tests": 9,
+    "pages": 2,
+    "documents": 2
+   },
+   "hau": {
+    "score": 1.0,
+    "tests": 9,
+    "pages": 2,
+    "documents": 1
+   },
+   "Laoo": {
+    "score": 1.0,
+    "tests": 8,
+    "pages": 2,
+    "documents": 2
+   },
+   "lao": {
+    "score": 1.0,
+    "tests": 8,
+    "pages": 2,
+    "documents": 2
+   },
+   "Arab": {
+    "score": 1.0,
+    "tests": 7,
+    "pages": 3,
+    "documents": 2
+   },
+   "Armn": {
+    "score": 1.0,
+    "tests": 6,
+    "pages": 1,
+    "documents": 1
+   },
+   "Geor": {
+    "score": 0.8333333333333334,
+    "tests": 6,
+    "pages": 1,
+    "documents": 1
+   },
+   "Olck": {
+    "score": 1.0,
+    "tests": 6,
+    "pages": 1,
+    "documents": 1
+   },
+   "asm": {
+    "score": 1.0,
+    "tests": 6,
+    "pages": 1,
+    "documents": 1
+   },
+   "hye": {
+    "score": 1.0,
+    "tests": 6,
+    "pages": 1,
+    "documents": 1
+   },
+   "kat": {
+    "score": 0.8333333333333334,
+    "tests": 6,
+    "pages": 1,
+    "documents": 1
+   },
+   "sat": {
+    "score": 1.0,
+    "tests": 6,
+    "pages": 1,
+    "documents": 1
+   },
+   "tir": {
+    "score": 1.0,
+    "tests": 6,
+    "pages": 1,
+    "documents": 1
+   },
+   "Deva": {
+    "score": 1.0,
+    "tests": 5,
+    "pages": 1,
+    "documents": 1
+   },
+   "aai": {
+    "score": 1.0,
+    "tests": 5,
+    "pages": 1,
+    "documents": 1
+   },
+   "amh": {
+    "score": 0.8,
+    "tests": 5,
+    "pages": 2,
+    "documents": 1
+   },
+   "arb": {
+    "score": 1.0,
+    "tests": 5,
+    "pages": 3,
+    "documents": 2
+   },
+   "bho": {
+    "score": 1.0,
+    "tests": 5,
+    "pages": 1,
+    "documents": 1
+   },
+   "Orya": {
+    "score": 1.0,
+    "tests": 4,
+    "pages": 1,
+    "documents": 1
+   },
+   "Thai": {
+    "score": 1.0,
+    "tests": 4,
+    "pages": 1,
+    "documents": 1
+   },
+   "aak": {
+    "score": 1.0,
+    "tests": 4,
+    "pages": 1,
+    "documents": 1
+   },
+   "ben": {
+    "score": 1.0,
+    "tests": 4,
+    "pages": 1,
+    "documents": 1
+   },
+   "ory": {
+    "score": 1.0,
+    "tests": 4,
+    "pages": 1,
+    "documents": 1
+   },
+   "tha": {
+    "score": 1.0,
+    "tests": 4,
+    "pages": 1,
+    "documents": 1
+   },
+   "Hang": {
+    "score": 0.3333333333333333,
+    "tests": 3,
+    "pages": 1,
+    "documents": 1
+   },
+   "kor": {
+    "score": 0.3333333333333333,
+    "tests": 3,
+    "pages": 1,
+    "documents": 1
+   },
+   "vie": {
+    "score": 1.0,
+    "tests": 3,
+    "pages": 1,
+    "documents": 1
+   },
+   "Gujr": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "Hani": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "Kali": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "aoz": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "cmn": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "ell": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "eng": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 2,
+    "documents": 2
+   },
+   "guj": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "kyu": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "pol": {
+    "score": 1.0,
+    "tests": 2,
+    "pages": 1,
+    "documents": 1
+   },
+   "Cyrl": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "Hebr": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "aeb": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "ara": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "bel": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "fin": {
+    "score": 0.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "form": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "heb": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   },
+   "yor": {
+    "score": 1.0,
+    "tests": 1,
+    "pages": 1,
+    "documents": 1
+   }
+  }
+ },
+ "per_suite": {
+  "multiling_finepdfs": 0.7635270541082164
+ },
+ "per_derivation": {
+  "model_panel": 0.9583333333333334,
+  "extractor_agreement": 0.6991150442477876,
+  "model_review": 0.375
+ }
+}

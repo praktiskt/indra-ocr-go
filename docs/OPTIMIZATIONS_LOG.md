@@ -59,6 +59,14 @@ delta / baseline.
   `hybrid` one. That is the int8 noise floor (the same conf-boundary effect
   the gauntlet sees on receipts), not a text-layer bug — with FP32 the pages
   match upstream exactly.
+- **Omni Parse Bench, direct against upstream** (120 pages of
+  `multiling_finepdfs`/`multilingual`/`realdoc_pages`, `--mode ocr`, the
+  upstream runner `bench/opb_indra.py` with the same model dir and page
+  selection): Go **0.8214** headline (text 0.6845, layout 0.9583) vs upstream
+  **0.8165** (text 0.6817, layout 0.9514) — the port is +0.5pp and **3.3x
+  faster** (215 ms vs 705 ms median per page, int8 vs upstream's FP32). The
+  full 2937-page run is the real number and was not repeated here (it takes
+  ~30 min); this subset is the fast check.
 - **Right-to-left A/B** (49 pages: 8 real OPB Arabic/Hebrew pages + 40
   synthetic RTL pages, upstream vs Go, FP32 both sides): **99.9% token
   agreement** (7117/7124 upstream tokens present in ours) and 95% of the lines

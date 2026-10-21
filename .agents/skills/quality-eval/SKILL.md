@@ -242,7 +242,8 @@ Two runners, one scorer:
      classes map 1:1 onto the benchmark's labels, `Table-Of-Contents` -> `text`)
      and prints the summary; the full one lands in `<name>_summary.json`.
 
-Full-corpus result (dev box, all 2937 pages, 8 workers x 1 thread):
+Full-corpus result (dev box, all 2937 pages, 8 workers x 1 thread) — **v0.3.2
+models**:
 
 | run | headline | text | tables | layout |
 |---|---|---|---|---|
@@ -251,6 +252,13 @@ Full-corpus result (dev box, all 2937 pages, 8 workers x 1 thread):
 | Go OCR (default) | 0.5739 | 0.319 | 0.523 | 0.880 |
 | upstream `auto` | 0.6155 | 0.405 | 0.563 | 0.879 |
 | upstream `--mode ocr` | 0.5714 | 0.326 | 0.512 | 0.876 |
+
+**v1.1.0 models, fast subset** (120 pages of
+`multiling_finepdfs,multilingual,realdoc_pages`, `--mode ocr`, same model dir
+and page selection for both runners): Go **0.8214** (text 0.6845, layout
+0.9583) vs upstream **0.8165** (text 0.6817, layout 0.9514) — +0.5pp and 3.3x
+faster (215 vs 705 ms median). The full sweep has not been re-run on v1.1.0
+(it is ~30 min); use this subset as the fast signal.
 
 (Upstream's published numbers, x86 4 vCPU one-at-a-time: `auto` 62.1, OCR-only
 57.5, median 228/303 ms — my runs reproduce them within ~0.5.)
