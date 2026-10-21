@@ -586,7 +586,7 @@ func (p *pdfPage) extract(scale float64, turn, frame int) *TextLayer {
 				breaks = append(breaks, len(recs))
 				continue
 			}
-			curQ = ((q - turn) % 4 + 4) % 4
+			curQ = ((q-turn)%4 + 4) % 4
 		}
 		var bl, br, bb, bt C.double
 		if C.pdfium_text_charbox(p.inst.api, tp, C.int(i), &bl, &br, &bb, &bt) == 0 {
@@ -760,7 +760,6 @@ func codePoint(u, u2 rune) (rune, bool) {
 	}
 	return u, false
 }
-
 
 // foldSpacingAccents composes a spacing diacritic that a PDF text layer places
 // next to its base letter. pdfium emits the accent glyph as a separate character

@@ -27,7 +27,7 @@ import (
 
 const (
 	lmDefaultBits = 11 // per token, unless lm.npz holds "bits"
-	lmTagShift    = 61  // the history length goes in the top 3 bits
+	lmTagShift    = 61 // the history length goes in the top 3 bits
 	lmBOS         = -1
 )
 
@@ -469,12 +469,12 @@ func lmBeamSearch(blank, topv []float32, topi []int64, t, k int, lm *ngramLM,
 		}
 		reach := beta + alpha*lm.maxLogp()
 		type ext_t struct {
-			prefix       []int
-			pk           string
-			c            int
-			newFrom, s   float64
-			st           []int
-			hk           uint64
+			prefix     []int
+			pk         string
+			c          int
+			newFrom, s float64
+			st         []int
+			hk         uint64
 		}
 		var exts []ext_t
 		for p, e := range beams {

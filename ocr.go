@@ -208,8 +208,6 @@ func (o *OCR) CallTurn(g *Gray, turn bool) *Page {
 	return o.read(g, k, a, small)
 }
 
-
-
 // read turns the page upright, detects, recognizes and assembles (the body
 // of upstream _read).
 func (o *OCR) read(g *Gray, k int, a float64, small *Gray) *Page {
@@ -273,5 +271,3 @@ func (o *OCR) CallAll(gs []*Gray) []*Page {
 	wg.Wait()
 	return out
 }
-
-

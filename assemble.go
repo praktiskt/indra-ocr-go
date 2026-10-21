@@ -100,7 +100,7 @@ func (o *OCR) tidyLines(boxes [][4]float64, rec []recLine, rtl bool) ([][4]float
 			if rtl {
 				gap = boxes[i][0] - boxes[j][2]
 			}
-			if -(0.3 * h[i]) <= gap && gap <= markerGap*math.Max(h[i], h[j]) &&
+			if -(0.3*h[i]) <= gap && gap <= markerGap*math.Max(h[i], h[j]) &&
 				(bestGap < 0 || gap < bestGap) {
 				best, bestGap = j, gap
 			}

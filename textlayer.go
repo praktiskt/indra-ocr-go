@@ -91,24 +91,24 @@ type TextLayer struct {
 
 // Thresholds from textlayer.py.
 const (
-	maxInvisibleFrac  = 0.05
-	maxBadCharFrac    = 0.005
-	maxNoInkFrac      = 0.03
-	maxVisualRTLFrac  = 0.25
-	minRTLPairs       = 20
-	inkDark           = 160 // gray level below which a pixel counts as ink
-	readableMin       = 0.9 // share of the layer's letters the recognizer must know
-	agreeLines        = 6   // text-layer lines whose script is checked against the image
-	agreeShare        = 0.25
-	latinCodes        = 0.9
-	verticalDownMin   = 30
+	maxInvisibleFrac = 0.05
+	maxBadCharFrac   = 0.005
+	maxNoInkFrac     = 0.03
+	maxVisualRTLFrac = 0.25
+	minRTLPairs      = 20
+	inkDark          = 160 // gray level below which a pixel counts as ink
+	readableMin      = 0.9 // share of the layer's letters the recognizer must know
+	agreeLines       = 6   // text-layer lines whose script is checked against the image
+	agreeShare       = 0.25
+	latinCodes       = 0.9
+	verticalDownMin  = 30
 	// brokenFontMap is textlayer.BROKEN_FONT_MAP: the layer's codes are not text.
 	// A broken map still places glyphs, so it is treated specially (no "unreadable"
 	// override, and the page is known upright when the glyphs are).
 	brokenFontMap = "broken font map"
 	// visualRTL is textlayer.VISUAL_RTL: right-to-left text stored in visual order.
-	visualRTL     = "right-to-left text in visual order"
-	notThePage    = "text layer does not match the page"
+	visualRTL  = "right-to-left text in visual order"
+	notThePage = "text layer does not match the page"
 )
 
 // badCharCount is textlayer.bad_char_count: replacement, private-use, surrogate,
