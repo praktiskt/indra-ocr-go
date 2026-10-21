@@ -160,7 +160,8 @@ func (o *OCR) boxGroups(g *Gray, boxes [][4]float32) ([]string, []bool) {
 }
 
 // int64Widths lifts []int widths to []int64.
-func int64Widths(ws []int) []int64 {	out := make([]int64, len(ws))
+func int64Widths(ws []int) []int64 {
+	out := make([]int64, len(ws))
 	for i, w := range ws {
 		out[i] = int64(w)
 	}
@@ -399,6 +400,12 @@ func (o *OCR) recognize(g *Gray, boxes [][4]float32, vertical bool) []recLine {
 			}
 			reads := mr.read(g, sub)
 			for k, j := range sel {
+				// Upstream: a confident math reading replaces the line. The
+				// decoder renders prose as single letters ("M a r c o T u c c i
+				// o") and drops diacritics, but its LaTeX is what the benchmark
+				// (and the reader) wants, so the image path keeps upstream's
+				// behaviour. The PDF text-layer path has the layer's own
+				// characters and prefers them (see readMathTextPage).
 				if reads[k].conf >= mathMinConf && strings.Contains(reads[k].text, "$") {
 					xc := float64(boxes[j][0]+boxes[j][2]) / 2
 					out[j] = recLine{text: reads[k].text, conf: 1.0, toks: []token{{Ch: reads[k].text, X: xc}}}

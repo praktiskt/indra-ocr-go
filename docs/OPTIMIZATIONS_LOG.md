@@ -18,6 +18,39 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### Math on a PDF text layer: keep the layer's text when the reading is garbled — `v0.32.0`
+
+- **Reported (v0.31.0):** with `Math(true)` on a PDF text layer, ordinary prose
+  lines (superscript affiliations, bracketed citations) were routed to the math
+  decoder and came out mangled — 52 lines with `$` on a 12-page arXiv paper,
+  13 letter-spaced runs (`M a r c o T u c c i o`), `Solé` → `Sole`, an em dash
+  as `$-$` — and the paper took 3.6-4.6 s instead of 2.0 s.
+- **Diagnosis: the port was faithful, upstream has the same defect.** Running
+  upstream `indra-ocr` 1.1.2 on the same PDF with `--math` gives **the same
+  output**: 103 lines with `$` (the port: 103), the same letter-spaced run, the
+  same `Sole`. The v0.24.0 output was clean only because the port did not yet
+  have upstream's text-layer math path (`_read_math`).
+- **Fix (text-layer path only):** a math reading that spells the line's words
+  out one letter at a time — a run of ≥3 single-letter tokens in a part with no
+  LaTeX command — is the decoder reading prose as math; the PDF's own characters
+  (diacritics, spacing) are better, so the layer's text is kept. A part with a
+  LaTeX command (`\mathrm { L e m m a }`) is the decoder's own italic-text
+  style and is left alone.
+- **Evidence:** arXiv 2609.03344 (12 pages, PDF text layer, `Math(true)`):
+  103 → **101** lines with `$` (the two mangled lines keep the layer's text),
+  **0** letter-spaced runs, `Ricard Solé` preserved. OPB `realdoc_pdfs` (88
+  pages) in PDF mode with `-math`: **0.7344** headline / 0.6523 per suite,
+  **identical** with and without the guard. OPB `olmo_arxiv_math` (100 pages,
+  image path, `-math`): 0.7763 / 0.6690, unchanged — the image path keeps
+  upstream's behaviour on purpose (there the recognizer's reading of a math line
+  is garbage, so the math reading is the only source of the LaTeX).
+- **Rejected first: a "the reading must be mostly math" gate** (reject a
+  reading whose `$...$` spans cover less than half its characters). It reads
+  well but **costs 7.0pp headline and 15.2pp of the text family** on OPB
+  `olmo_arxiv_math` (0.7060 vs 0.7763): the benchmark wants the inline LaTeX of
+  prose lines, and that is exactly what the gate throws away. The garbling
+  guard targets the defect instead and is free.
+
 ### Language-model beam search and line decoding: three bugs that kept the LM off — `v0.31.0`
 
 - **Found by A/B-ing against the Python reference** (upstream `indra-ocr` 1.1.2

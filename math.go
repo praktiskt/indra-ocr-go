@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"math"
 	"strings"
+	"unicode"
 
 	ort "github.com/yalue/onnxruntime_go"
 )
@@ -22,6 +23,48 @@ const (
 	mathEncStride = 8  // encoder downsample: memory length = ceil(width/8)
 	mathClsHeight = 32 // mathcls reads the recognizer's crops (rec height)
 )
+
+// mathGarbled reports whether a math reading spells the line's words out one
+// letter at a time ("D a v i d C . K r a k a u e r"): the decoder read prose as
+// math, so the reading drops the diacritics and spaces the letters out. Such a
+// reading is worse than the text it would replace (the PDF text layer's own
+// characters). A part with a LaTeX command ("\mathrm { L e m m a }") is the
+// decoder's own way of writing italic text and is left alone.
+func mathGarbled(text string) bool {
+	for _, part := range strings.Split(text, "$") {
+		if partGarbled(part) {
+			return true
+		}
+	}
+	return false
+}
+
+// partGarbled reports whether one part of a reading (inside or outside the
+// $...$ spans) reads as single letters in a row.
+func partGarbled(part string) bool {
+	if strings.Contains(part, `\`) {
+		return false
+	}
+	run := 0
+	for _, tok := range strings.Fields(part) {
+		if len([]rune(tok)) == 1 && isLetterRune(tok) {
+			run++
+			if run >= 3 {
+				return true
+			}
+			continue
+		}
+		run = 0
+	}
+	return false
+}
+
+func isLetterRune(s string) bool {
+	for _, r := range s {
+		return unicode.IsLetter(r)
+	}
+	return false
+}
 
 type mathLine struct {
 	text string

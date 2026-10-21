@@ -93,6 +93,39 @@ method in [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-
   bottom) and upstream's own picture path is dormant (`picture_boxes` gets
   `None`), so the port does not implement it. Decode is unchanged (3 channels).
 
+## Math on a PDF text layer: a garbled reading never replaces the layer's text
+
+- **What:** upstream's `_read_math` replaces a text-layer line with the math
+  decoder's reading whenever the reading contains `$` and is confident. The
+  decoder often reads *prose* as math — it spells the words out one letter at a
+  time (`D a v i d C . K r a k a u e r`) and drops the diacritics — so on a
+  paper with superscript affiliations and bracketed citations the front matter
+  and the reference lines come out mangled (`Ricard Sole` for `Ricard Solé`).
+- **The port keeps the layer's characters when the reading is garbled:** a
+  reading with a run of single letters in a row (`M a r c o T u c c i o`) and no
+  LaTeX command in that part is the decoder's spelling of prose, and the PDF's
+  own text (with its diacritics and its spacing) is better. A part with a LaTeX
+  command (`\mathrm { L e m m a }`) is the decoder's own italic-text style and
+  is left alone.
+- **Scope:** the **text-layer path only**. The image path keeps upstream's
+  behaviour on purpose: there the recognizer's reading of a math line is
+  garbage, so the math reading is the only source of the LaTeX — dropping it
+  costs real quality (measured below), and the benchmark wants that LaTeX.
+- **Evidence** (upstream indra-ocr 1.1.2 on arXiv 2609.03344, 12 pages,
+  `Math(true)`, PDF text layer): upstream and the port *without* the guard
+  produce the same output — 103 lines with `$`, the letter-spaced
+  `M a r c o T u c c i o`, and `Ricard Sole` (the `é` lost) — i.e. the port was
+  faithful and the defect is upstream's. With the guard: 101 lines with `$`
+  (the two mangled lines keep the layer's text), **0** letter-spaced runs, and
+  `Ricard Solé` preserved.
+- **Cost on the benchmark:** OPB `realdoc_pdfs` (88 pages) in PDF mode with
+  `-math`: **0.7344** headline / 0.6523 per suite, *identical* with and without
+  the guard. OPB `olmo_arxiv_math` (100 pages, image path, `-math`): 0.7763 /
+  0.6690, unchanged (the image path is untouched). A blunt "the reading must be
+  mostly math" gate was measured first and **rejected**: it cost 7.0pp headline
+  and 15.2pp of the text family on the math suite, because the benchmark wants
+  the inline LaTeX of prose lines.
+
 ## Quantized models
 
 - `rec.onnx` (the base recognizer) is mixed-precision int8, the three

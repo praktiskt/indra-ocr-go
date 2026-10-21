@@ -340,8 +340,11 @@ func (o *OCR) readMathTextPage(gray *Gray, boxes [][4]float32, rec []recLine) {
 	reads := mr.read(gray, mathBoxes)
 	for q, i := range mathIdx {
 		text, conf := reads[q].text, reads[q].conf
-		// A reading without math, or not confident, leaves the layer's text.
-		if !strings.Contains(text, "$") || conf < mathMinConf {
+		// A reading without math, or not confident, leaves the layer's text. A
+		// garbled reading leaves it too: the decoder renders prose as single
+		// letters and drops the diacritics, so the layer's own characters are
+		// better than the decoder's re-reading.
+		if !strings.Contains(text, "$") || conf < mathMinConf || mathGarbled(text) {
 			continue
 		}
 		first := rec[i].toks[0].Seq
@@ -377,6 +380,7 @@ func sampleEvery(full []int, n int) []int {
 	}
 	return out
 }
+
 // CallPDF converts PDF bytes over the pool.
 func (p *Pool) CallPDF(data []byte, opts *PDFOptions) ([]*Page, error) {
 	o := <-p.ch
