@@ -18,6 +18,40 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### Language-model beam search and line decoding: three bugs that kept the LM off — `v0.31.0`
+
+- **Found by A/B-ing against the Python reference** (upstream `indra-ocr` 1.1.2
+  run on the same pages with the same FP32 models), not by the corpus: the port
+  produced *plausible* output, so the guards could not see it.
+- **Bug 1 — the beam search read log-probabilities as probabilities.** The
+  model's `topv` output is `LogSoftmax -> TopK`, i.e. **log**-probabilities
+  (upstream's `beam_search` docstring says so). The port compared them against
+  `candFloor` (a probability, 3e-3) and then took `log()` of them again, so
+  every candidate was either dropped or NaN. Every line the LM touched came
+  back **empty** — the language model has been effectively off since the port.
+  Fixed: compare in log space (`v >= log(candFloor)`) and use the value as-is.
+- **Bug 2 — the text came from the greedy CTC ids, the tokens from the beam.**
+  Upstream reassigns `ids` to the beam-search result, so the line text and the
+  tokens are the same reading; the port kept the greedy text and the beam
+  tokens. Fixed (`recognize.go`).
+- **Bug 3 — an unsplit line kept the raw recognizer text.** Upstream always
+  decodes the line through `_decode` (whitespace collapse, NFC, and the
+  right-to-left flip for group tokens; the text-layer tokens get the collapse
+  only). The port only decoded split lines. Fixed (`assemble.go`, `ocr.go`).
+- **Effect (FUNSD 199-page guard, int8):** 0.8678 → **0.9318**. Gauntlet: cord
+  0.6442 → 0.7301, sroie 0.8457 → 0.8743, xfund 0.9458 → 0.9634,
+  funsd-degraded 0.6610 → 0.7400, funsd-photo 0.5874 → 0.6169. Per-script
+  guard (character recall): world 0.8203 → 0.9246, cjk 0.8378 → 0.9276, rtl
+  0.9641 (unchanged). The v1.1 numbers now sit **above** the v0.3.2 reference
+  (FUNSD 0.9150, cord 0.7055, sroie 0.8309, xfund 0.9601).
+- **Upstream A/B (14 pages, FP32 both sides):** word agreement 94.8% → **99.5%**
+  (2248/2259 upstream words present in ours, 8 words only in ours), line-level
+  LCS 79.7% → **93.1%**. The residual is the detector's input resize: our
+  `INTER_AREA` port rounds differently from cv2's (max 1/255 per pixel, 34% of
+  pixels differ), which flips a borderline pixel and occasionally a connected
+  component. **A/B against upstream is the check the corpus cannot do** — it
+  compares *order and wording*, not just word presence.
+
 ### Upstream model upgrade to indra v1.1.0 — `v0.29.0`
 
 - **What:** the port tracks upstream `indra-ocr` **v1.1.0** (package 1.1.2).
@@ -67,35 +101,29 @@ delta / baseline.
   with other CPU-heavy work running — re-measure on an idle box before
   quoting them.**
 - **Evidence (this machine, FUNSD 199-page guard, threads=2):** FP32 v1.1.0
-  `rec` **0.8658**; int8 `rec` **0.8680** (neutral, +0.22pp is within noise).
-  Reading order (order.onnx int8 vs FP32, same rec/det): **150/199 pages
-  identical**, mean Kendall tau **0.9959**, 2 pages < 0.9.
-- **Group recognizers stay FP32 (why):** int8 needs per-script calibration.
-  Calibrating `rec_cjk` on Latin (FUNSD) crops confabulates CJK
-  (`chinese_essay` char-sim 0.62 vs FP32); a CJK-calibrated build recovers
-  (`chinese_essay` 0.98, OPB `cmn_Hani` 0.987, `jpn_Jpan` 0.975). But
-  `rec_world`/`rec_rtl` int8 regressed even with per-script calibration on 27
-  real OPB multilingual pages (mean char-sim 0.83; Bengali/Hebrew/Armenian pages
-  < 0.6), so they ship FP32 until a per-script guard exists. `tools/calib` gains
-  `-window` (band crops for group recs) and `tools/quantize_rec.py` gains
-  `--rec-height` (96 for the windowed base rec) so the work can be redone.
+  `rec` 0.8658 and int8 `rec` 0.8680 when the upgrade landed (the LM was
+  broken then — see `v0.31.0`); with the LM fixed the shipped int8 build
+  scores **0.9318**. Reading order (order.onnx int8 vs FP32, same rec/det):
+  **144/199 pages identical**, mean Kendall tau **0.9939**, 2 pages < 0.9.
+- **Group recognizers:** the first int8 attempt failed because each group model
+  was calibrated on the wrong script; the shipped builds are per-script
+  calibrated — see the entry below.
 - **Bug fix (found by the guard):** `assemble` passed `tidy_lines` the
   *pre-split* boxes with the *post-split* recs (panic on any page whose line
   split at a wide gap). Fixed to pass the split boxes.
 - **Bug fix (found by a unit test):** the npz reader assumed fixed-width central
   directory entries, so every LM failed to load and `lmFor` returned `nil` —
   the beam search was silently off. Entries are now walked with their
-  name/extra/comment lengths; all three LMs load. FUNSD is LM-neutral
-  (0.8685 -> 0.8680); the LMs matter on messy text.
+  name/extra/comment lengths; all three LMs load.
 - **Gauntlet (recreated from the spec; scratch, `/tmp/opencode/hard`, 150
   pages):** int8 vs FP32 v1.1 is neutral — sroie 0.8514/0.8229, cord
   0.6687/0.6871, xfund 0.9072/0.9012 (micro word recall, threads=2). The
   synthetic `funsd-degraded`/`funsd-photo` generators were rebuilt differently
   from the originals, so their absolute scores (0.67/0.57) are **not**
   comparable to the historical 0.78/0.76; only the int8-vs-FP32 differential is
-  meaningful there (neutral). xfund sits below its old 0.9601: the new v1.1
-  recognizers change CJK output, and the Latin-alnum scorer is blind to CJK
-  (a clean zh page reads correctly but scores 0.68).
+  meaningful there (neutral). Those numbers predate the LM fix (`v0.31.0`),
+  which lifted every subset: sroie 0.8743, cord 0.7301, xfund 0.9634,
+  funsd-degraded 0.7400, funsd-photo 0.6169.
 - **Orientation bar re-measured on the v1.1 `orient.onnx` (kept at 0.98):** the
   new model is *less* discriminative on receipts than the v0.3.2 one — on 80
   cord photos (20 receipts x 4 photo variants) it calls 52 of them "upside
@@ -131,13 +159,16 @@ delta / baseline.
 - **Guard built for it** (throwaway, `INDRA_SCRIPT_DIR`): synthetic pages per
   script, rendered with the system Noto fonts (raqm shaping) from real OPB
   multilingual text, with **exact ground truth**. Character recall
-  (int8 / FP32): rtl **0.9769 / 0.9772**, world **0.9467 / 0.9468**,
-  cjk **0.9266 / 0.9300**. On 35 *real* OPB multilingual pages the int8 output
-  keeps **99.2%** of the FP32 characters (worst page 97.2%); the clean real CJK
-  page (`chinese_essay`) is character-identical.
+  (int8 / FP32): rtl **0.9641 / 0.9641**, world **0.9246 / 0.9246**,
+  cjk **0.9276 / 0.9276** (word recall: rtl 0.9372, world 0.8702,
+  cjk 0.4583 — the CJK word metric is whole-token and therefore harsh).
+  On 35 *real* OPB multilingual pages the int8 output keeps **99.2%** of the
+  FP32 characters (worst page 97.2%); the clean real CJK page
+  (`chinese_essay`) is character-identical.
 - **Tripwires:** FUNSD guard 0.8680 → 0.8678 (Latin path untouched); gauntlet
   cord 0.6687 → 0.6626, sroie 0.8514 (unchanged), xfund 0.9072 (unchanged),
-  funsd-degraded 0.6661 → 0.6686, funsd-photo 0.5624 → 0.5610 — all noise.
+  funsd-degraded 0.6661 → 0.6686, funsd-photo 0.5624 → 0.5610 — all noise
+  (numbers from before the LM fix, `v0.31.0`).
 - `--fp32-blocks 4` was tried for `rec_cjk` (the worst case) and did not help
   (character overlap 0.9815 → 0.9821 for +0.55 MB), so the recipe stays at 2.
 

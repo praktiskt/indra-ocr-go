@@ -44,9 +44,9 @@ EOF
 INDRA_CORPUS_DIR=/path/to/corpus go test -run TestCorpusRecall -count=1 -v
 ```
 
-Pass bar: word recall >= 0.80 (reference ~0.86 at v0.8.0; **v1.1.0**: FP32
-0.8658, shipped int8 0.8680, threads=2). Below bar = real regression, not
-refactor noise. ~16s runtime.
+Pass bar: word recall >= 0.80 (reference ~0.86 at v0.8.0; **v1.1.0 shipped**:
+**0.9318** (int8), threads=2 — the v0.3.2 reference was 0.9150). Below bar = real
+regression, not refactor noise. ~16s runtime.
 
 ## Reading order (the guard is blind to it)
 
@@ -64,6 +64,33 @@ The corpus is deterministic (raw-vs-raw divergence is 0), so this is a
 differential metric: compare candidate vs shipped. The shipped order.onnx
 (asserted in the log) has mean tau 0.5057 on FUNSD and 0.8889 cord / 0.3650
 xfund. Neutral = |delta| < ~0.01; quantify how many pages drop >2pp.
+
+## Upstream A/B (exactness — the check the corpus cannot do)
+
+The corpus and the gauntlet score *word presence*; they cannot see that the
+port reads a line differently from upstream (a different word order, a missing
+collapse, a language model that never fires). The upstream Python reference
+can: run the same pages through `indra_ocr` (pip install from the upstream
+repo, `indra-ocr scan.png --format json`, `--model-dir` pointing at the
+upstream model folder) and through the Go port, then compare.
+
+```sh
+# upstream (same v1.1.0 model dir the port was built from)
+uv run --with-editable <upstream clone> python -m indra_ocr.cli --format json \
+    --model-dir <model dir> page1.png page2.png > ref.jsonl
+
+# Go: dump {file, lines:[{box,text,conf}]} per page (throwaway _test.go)
+```
+
+Compare: **word agreement** (share of upstream's words present in ours) and
+**line-level LCS** (order-preserving line alignment). The port's current
+numbers on 14 mixed pages (FUNSD + testdata, FP32 on both sides): word
+agreement **99.5%**, line LCS **93.1%**. The residual is the detector input
+resize: our `INTER_AREA` port rounds differently from cv2's (max 1/255 per
+pixel), which flips a borderline pixel and occasionally a connected component.
+
+Do this after touching recognition, decoding, the LM or the text layer — the
+guards alone let a whole mechanism (the LM) stay off for months.
 
 ## A/B procedure for candidate changes
 
@@ -140,11 +167,12 @@ Reference scores (threads=2):
 | funsd-photo | 0.7579 | 655 |
 | cord | 0.7055 | 272 |
 
-**v1.1.0 baseline (int8 shipped / FP32, threads=2):** sroie 0.8514/0.8229,
-cord 0.6687/0.6871, xfund 0.9072/0.9012; `funsd-degraded`/`funsd-photo`
-generators were rebuilt (harsher) so their absolute scores (0.67/0.57) are not
-comparable to the historical rows — use them as a differential only. xfund's
-Latin-alnum scorer is blind to CJK, so a correct zh page can score ~0.68.
+**v1.1.0 baseline (int8 shipped, threads=2):** FUNSD **0.9318**; gauntlet
+sroie 0.8743, cord 0.7301, xfund 0.9634, funsd-degraded 0.7400,
+funsd-photo 0.6169 (the two synthetic generators were rebuilt harsher, so
+their absolute scores are not comparable to the historical rows — use them as a
+differential only). xfund's Latin-alnum scorer is blind to CJK, so a correct zh
+page can score ~0.68.
 
 Compare current runs against recall; `avg ms` is a rough guide (machine and
 thermal state move it ~20%).

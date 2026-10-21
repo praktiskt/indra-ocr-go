@@ -56,7 +56,9 @@ Three choices carried the accuracy (details and the A/B evidence are in
 Measured on the FUNSD 199-page guard with the default pool (8 workers ×
 1 thread, 16-core Zen4), **v0.3.2**: FP32 0.9150 recall / ~17.4 pages/s →
 this build 0.9136 recall / ~22 pages/s (+~27% pages/s, −13% peak RSS).
-**v1.1.0** (threads=2): FP32 `rec` 0.8658 → int8 0.8680 (neutral).
+**v1.1.0** (threads=2): FP32 `rec` 0.8658 → int8 0.8680 when the upgrade landed
+(the LM beam search was broken then, see `docs/OPTIMIZATIONS_LOG.md` v0.31.0);
+with the LM fixed the shipped int8 build scores **0.9318**.
 
 ## Regenerate `models/rec.onnx`
 
@@ -113,8 +115,8 @@ fonts (raqm shaping) from real OPB multilingual text — 40 rtl (Arabic/Hebrew),
 100 world (5 Indic/Caucasian/Ethiopic), 40 cjk (Han/Kana) pages, one directory
 per group. A group guard uses the same pages (they carry the exact ground
 truth) and scores **character** recall, plus the FUNSD guard and the gauntlet
-as tripwires. Results: character recall int8/FP32 — rtl 0.9769/0.9772, world
-0.9467/0.9468, cjk 0.9266/0.9300; on 35 real OPB multilingual pages the int8
+as tripwires. Results: character recall int8/FP32 — rtl 0.9641/0.9641, world
+0.9246/0.9246, cjk 0.9276/0.9276; on 35 real OPB multilingual pages the int8
 output keeps 99.2% of the FP32 characters.
 
 ```sh
