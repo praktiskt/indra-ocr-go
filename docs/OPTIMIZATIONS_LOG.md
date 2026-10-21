@@ -91,6 +91,14 @@ delta / baseline.
   the base build is the raw graph; it is still faster than FP32.
   The three **script-group** recognizers (`rec_cjk`/`rec_rtl`/`rec_world`) are
   int8 too, but each needs **its own script's calibration set** (see below).
+- **Quantization A/B (per page, the rule from the skill):** base `rec.onnx` int8
+  vs FP32 on the 199-page FUNSD corpus: **0.9341 → 0.9318** (−0.23pp) and
+  **1 page** degraded >5pp (out of 199) — inside the reject rule (drop >0.01
+  or >10 pages >5pp). Per-script guard (int8 vs FP32 group recognizers):
+  rtl 0.9644 → 0.9641, world 0.9243 → 0.9246, cjk 0.9311 → 0.9276, **0 pages**
+  degraded >5pp in any of the three. The gauntlet's sroie/cord subsets move by
+  ~1.7pp between FP32 and int8, but they hold 175/163 words — three words —
+  so the per-page A/B on the 199-page corpus is the number that decides.
 - **Speed and memory** (deployment config: pool = 8 workers x 1 intra-op
   thread, 199-page FUNSD corpus, this 16-core box, best of 2):
   FP32 `rec`+`order` **15.6 pages/s, peak RSS 3.08 GB** →
@@ -168,7 +176,9 @@ delta / baseline.
 - **Tripwires:** FUNSD guard 0.8680 → 0.8678 (Latin path untouched); gauntlet
   cord 0.6687 → 0.6626, sroie 0.8514 (unchanged), xfund 0.9072 (unchanged),
   funsd-degraded 0.6661 → 0.6686, funsd-photo 0.5624 → 0.5610 — all noise
-  (numbers from before the LM fix, `v0.31.0`).
+  (numbers from before the LM fix, `v0.31.0`). Re-measured with the LM
+  working: character recall int8/FP32 rtl 0.9641/0.9644, world 0.9246/0.9243,
+  cjk 0.9276/0.9311, with **0 of 180 pages degraded >5pp** — accept.
 - `--fp32-blocks 4` was tried for `rec_cjk` (the worst case) and did not help
   (character overlap 0.9815 → 0.9821 for +0.55 MB), so the recipe stays at 2.
 
