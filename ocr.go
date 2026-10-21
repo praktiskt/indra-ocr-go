@@ -13,10 +13,13 @@ import (
 const (
 	// MinConf drops line text under this mean CTC peak probability (box stays).
 	MinConf = 0.5
-	// OrientMin applies a turn only above this probability. Photo receipts
-	// with dark borders confuse orient.onnx into mid-confidence votes
-	// (e.g. 0.954 for 180deg on an upright photo); true rotations score
-	// >=0.998, so the bar sits between them.
+	// OrientMin applies a turn only above this probability. The v1.1
+	// orient.onnx confuses receipt photos into "upside down" votes with up to
+	// 0.995 confidence (the v0.3.2 model topped out at 0.954), and true
+	// rotations score >=0.998, so the bar sits just under the false-positive
+	// tail. Measured: 3/80 cord photo pages destroyed and 3/80 inverted ones
+	// fixed at 0.98, versus 8/11 at upstream's 0.95 (which also recovers 4.8pp
+	// more on synthetic upside-down documents).
 	OrientMin = 0.98
 	// SplitGap cuts a detected line at wider gaps; CellGap splits table cells.
 	SplitGap = 3.0

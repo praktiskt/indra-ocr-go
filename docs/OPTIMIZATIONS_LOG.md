@@ -56,6 +56,15 @@ delta / baseline.
   the Conv1d→Conv2d NCHWc promotion (`tools/quantize_rec.py --no-promote`), so
   the base build is the raw graph; it is still faster than FP32.
   `rec_cjk`/`rec_rtl`/`rec_world` ship **FP32**.
+- **Speed and memory** (deployment config: pool = 8 workers x 1 intra-op
+  thread, 199-page FUNSD corpus, this 16-core box, best of 2):
+  FP32 `rec`+`order` **15.6 pages/s, peak RSS 3.08 GB** →
+  int8 **16.8 pages/s, peak RSS 2.89 GB** (+8% pages/s, −6% RSS; the embedded
+  models shrink by 5 MB). Smaller than the v0.3.2 recipe's +25%, because the v1.1
+  base rec gained the `/rec/context` module and cannot use the NCHWc promotion
+  that made the old graph fast. **These two numbers were taken on a machine
+  with other CPU-heavy work running — re-measure on an idle box before
+  quoting them.**
 - **Evidence (this machine, FUNSD 199-page guard, threads=2):** FP32 v1.1.0
   `rec` **0.8658**; int8 `rec` **0.8680** (neutral, +0.22pp is within noise).
   Reading order (order.onnx int8 vs FP32, same rec/det): **150/199 pages
@@ -86,6 +95,18 @@ delta / baseline.
   meaningful there (neutral). xfund sits below its old 0.9601: the new v1.1
   recognizers change CJK output, and the Latin-alnum scorer is blind to CJK
   (a clean zh page reads correctly but scores 0.68).
+- **Orientation bar re-measured on the v1.1 `orient.onnx` (kept at 0.98):** the
+  new model is *less* discriminative on receipts than the v0.3.2 one — on 80
+  cord photos (20 receipts x 4 photo variants) it calls 52 of them "upside
+  down", and the false-positive confidence reaches **0.995** (the old model
+  topped out at 0.954). At our 0.98 bar that destroys 3/80 receipt pages and
+  fixes 3/80 genuinely inverted ones (net 0); upstream's 0.95 would destroy 8
+  and fix 11 (net +3 on receipts) but recover 4.8pp more on *synthetic*
+  upside-down documents (FUNSD rotated 180°: 0.7646 at 0.98 vs 0.8125 at
+  0.95). Real rotated pages (OPB `rotation_skew`, 60 pages) are unaffected
+  (0.8974 at both bars), and upright pages are unaffected (0.8680 at both).
+  Kept at 0.98: on **real** data the bar is neutral-to-better, the upside-down
+  gain comes from a synthetic set, and the bar destroys fewer pages outright.
 
 ### PDFium concurrency: one library instance per concurrent document — `v0.28.1`
 
