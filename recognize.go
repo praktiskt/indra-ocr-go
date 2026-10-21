@@ -272,10 +272,12 @@ func (o *OCR) recognizeSel(out []recLine, boxes [][4]float32, band, tall []lineC
 			}
 			bestConf[j] = conf
 			if conf >= MinConf {
+				// The text comes from the ids that were read: the LM beam
+				// search replaces the greedy ones (upstream reassigns `ids`).
 				if gr.asChars {
-					out[j] = recLine{text: joinChars(vocab, ids), conf: conf, toks: toks}
+					out[j] = recLine{text: joinChars(vocab, tokIDs), conf: conf, toks: toks}
 				} else {
-					out[j] = recLine{text: vocab.Decode(ids), conf: conf, toks: toks}
+					out[j] = recLine{text: vocab.Decode(tokIDs), conf: conf, toks: toks}
 				}
 			} else {
 				out[j] = recLine{text: "", conf: conf}

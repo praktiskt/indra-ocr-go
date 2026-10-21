@@ -432,13 +432,16 @@ func lmBeamSearch(blank, topv []float32, topi []int64, t, k int, lm *ngramLM,
 			c  int
 			lp float64
 		}
+		// topv holds log-probabilities (the model's LogSoftmax -> TopK), so
+		// the floor is compared in log space and the value is used as-is.
+		logFloor := math.Log(candFloor)
 		for q := 0; q < k; q++ {
 			c := int(topi[tt*k+q])
-			if v := float64(topv[tt*k+q]); c != 0 && v >= candFloor {
+			if v := float64(topv[tt*k+q]); c != 0 && v >= logFloor {
 				cands = append(cands, struct {
 					c  int
 					lp float64
-				}{c, math.Log(v)})
+				}{c, v})
 			}
 		}
 		// Every beam's own entries first (the blank, and a repeat that

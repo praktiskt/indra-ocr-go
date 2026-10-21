@@ -166,14 +166,19 @@ func (o *OCR) decodeToks(toks []token, pageRTL *bool) string {
 		}
 		text := sb.String()
 		text = strings.Join(strings.Fields(text), " ")
-		text = norm.NFC.String(text) // Hangul jamo -> syllables
-		if !toks[0].hasSeq && hasRTL(text) {
-			var base *bool
-			if pageRTL != nil {
-				b := *pageRTL
-				base = &b
+		if !toks[0].hasSeq {
+			// Group recognizer (char, x): NFC (Hangul jamo -> syllables) and
+			// the right-to-left flip. Text-layer tokens (char, x, seq) get the
+			// whitespace collapse only.
+			text = norm.NFC.String(text)
+			if hasRTL(text) {
+				var base *bool
+				if pageRTL != nil {
+					b := *pageRTL
+					base = &b
+				}
+				text = flip(text, true, base)
 			}
-			text = flip(text, true, base)
 		}
 		return text
 	}

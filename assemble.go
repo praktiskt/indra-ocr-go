@@ -396,7 +396,10 @@ func splitLine(o *OCR, box [4]float64, r recLine, gap float64, at []float64, pag
 	}
 	segs = append(segs, cur)
 	if len(segs) == 1 {
-		return []splitPart{{box: box, rec: r}}
+		// Upstream decodes the tokens even when the line is not cut
+		// (whitespace collapse, NFC and the RTL flip for group tokens).
+		return []splitPart{{box: box, rec: recLine{
+			text: o.decodeToks(r.toks, &pageRTL), conf: r.conf, toks: r.toks}}}
 	}
 	var out []splitPart
 	for _, sg := range segs {
