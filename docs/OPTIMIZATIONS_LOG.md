@@ -59,6 +59,13 @@ delta / baseline.
   `hybrid` one. That is the int8 noise floor (the same conf-boundary effect
   the gauntlet sees on receipts), not a text-layer bug — with FP32 the pages
   match upstream exactly.
+- **Right-to-left A/B** (49 pages: 8 real OPB Arabic/Hebrew pages + 40
+  synthetic RTL pages, upstream vs Go, FP32 both sides): **99.9% token
+  agreement** (7117/7124 upstream tokens present in ours) and 95% of the lines
+  character-identical — the v1.1 `rtl.go` flip (visual↔logical, mirroring,
+  presentation forms) matches upstream. The **vertical-column** path (orient
+  class 4) could not be A/B'd: no vertical document exists in the test data
+  and the orient model does not call a synthetic one vertical either.
 
 ### Upstream model upgrade to indra v1.1.0 — `v0.29.0`
 
