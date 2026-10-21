@@ -1,8 +1,12 @@
 # indra-ocr-go
 
 Native Go port of the [Indra OCR pipeline](https://github.com/datalab-to/indra)
-(Apache-2.0), tracking upstream models **v1.1.0**. CPU only, ONNX Runtime, all
-models and native libraries embedded — nothing is downloaded at runtime.
+(Apache-2.0), tracking upstream package **indra-ocr 1.1.2** on model set
+**`v1.1.0`** (the two 1.1.x code releases after 1.1.0 share those weights:
+1.1.1 distrusts a right-to-left text layer stored in visual order, 1.1.2 checks a
+layer's script against the page image before trusting it — both ported here).
+CPU only, ONNX Runtime, all models and native libraries embedded — nothing is
+downloaded at runtime.
 
 Four script-group recognizers (base Latin/Greek/Cyrillic, CJK, RTL, world
 Indic/Caucasian) routed per line by a script classifier, with n-gram

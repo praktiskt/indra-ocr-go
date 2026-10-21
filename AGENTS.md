@@ -5,7 +5,8 @@ Guide for AI agents (and humans) working in this repo.
 ## What this is
 
 Native Go port of the [Indra OCR pipeline](https://github.com/datalab-to/indra)
-(models `datalab-to/indra-ocr` **v1.1.0**): line detection, four script-group CTC
+(upstream package `indra-ocr` **1.1.2**, models `datalab-to/indra-ocr`
+**v1.1.0**): line detection, four script-group CTC
 recognizers with a script router and n-gram LM beam search, reading order,
 orientation and vertical-column layout, on ONNX Runtime, **CPU only**. Models and
 the native ONNX Runtime libraries are embedded; nothing is downloaded at runtime.

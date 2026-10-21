@@ -69,7 +69,9 @@ delta / baseline.
 
 ### Upstream model upgrade to indra v1.1.0 — `v0.29.0`
 
-- **What:** the port tracks upstream `indra-ocr` **v1.1.0** (package 1.1.2).
+- **What:** the port tracks upstream package `indra-ocr` **1.1.2** on the model
+  set `datalab-to/indra-ocr` tag **v1.1.0** (1.1.1 and 1.1.2 are code-only
+  releases: the visual-order RTL layer check and the legacy-font script check).
   `models/` is the v1.1.0 tag: `det.onnx` retrained for handwriting (same size,
   3 channels — picture path dormant upstream), a 4-class `script.onnx` router
   (`script_groups = [base, cjk, rtl, world]`), three new script-group
