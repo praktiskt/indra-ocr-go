@@ -112,11 +112,17 @@ GT words: sroie `ocr[].text`, cord `json.loads(raw_data)["ocr_words"]`
 (literal_eval), xfund `words`, synth copied from FUNSD gt.
 
 **v1.1 scripts (rtl/world) are not yet covered here.** xfund gives zh/ja
-(`rec_cjk`) but not Arabic/Hebrew (`rec_rtl`) or Greek/Cyrillic/Devanagari/
-Armenian (`rec_world`). When changing a group recognizer, add a scratch subset
-of OPB `multiling_finepdfs` pages (`_Arab_`/`_Hebr_` for rtl; `_Grek_`/`_Cyrl_`/
-`_Deva_`/`_Armn_`/`_Beng_` for world) and score it the same way — this is the
-guard `rec_cjk`/`rec_rtl`/`rec_world` int8 needs before it can ship.
+(`rec_cjk`) but not Arabic/Hebrew (`rec_rtl`) or the Indic/Caucasian scripts
+(`rec_world`). When changing a group recognizer, score a **per-script guard**:
+synthetic pages per script, rendered with the system Noto fonts (raqm shaping)
+from real OPB `multiling_finepdfs` gold text, with the exact ground truth kept
+(`img/*.png` + `gt.json` with the page's lines). Score **character** recall
+(whole-token word recall is meaningless for CJK and RTL). Script → model
+(v1.1.0 `meta.json` vocabs): `rec_cjk` = Han/Kana, `rec_rtl` = Arabic/Hebrew,
+`rec_world` = Devanagari/Bengali/Armenian/Georgian/Ethiopic, `rec` = Latin/
+Greek/Cyrillic. Calibrating a group model on the wrong script does not just
+degrade it, it makes it confabulate (`rec_cjk` on Latin crops reads CJK as
+garbage).
 
 Scorer pattern (throwaway `hard_probe_test.go`, `HARD_DIR` env, never commit):
 8 workers x `NewOCR(2)`, per page {recall, lines, empty, ms, rotation, skew},

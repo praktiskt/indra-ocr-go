@@ -95,14 +95,11 @@ method in [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-
 
 ## Quantized models
 
-- `rec.onnx` (the base recognizer) is mixed-precision int8 and `order.onnx` is
-  dynamic int8; upstream ships FP32 (plus an optional int8 `rec`). This moves the
-  last digits of the output. The three **script-group** recognizers
-  (`rec_cjk`, `rec_rtl`, `rec_world`) stay **FP32**: int8 needs per-script
-  calibration and a per-script quality guard that the FUNSD corpus cannot give
-  (with Latin calibration `rec_cjk` confabulates CJK; a CJK-calibrated build is
-  fine, but `rec_rtl`/`rec_world` int8 regressed on OPB multilingual pages even
-  with per-script calibration). See `OPTIMIZATIONS_LOG.md`.
+- `rec.onnx` (the base recognizer) is mixed-precision int8, the three
+  script-group recognizers (`rec_cjk`/`rec_rtl`/`rec_world`) are int8 with
+  **per-script** calibration, and `order.onnx` is dynamic int8; upstream ships
+  FP32 (plus an optional int8 `rec`). This moves the last digits of the output.
+  See `OPTIMIZATIONS_LOG.md` for the A/B evidence and the calibration rule.
 
 ## Skew/orientation: integer row sums and merge-order ties
 

@@ -55,7 +55,8 @@ delta / baseline.
   `order.onnx` dynamic int8 + `tab`-strip**. The new `/rec/context` module breaks
   the Conv1d→Conv2d NCHWc promotion (`tools/quantize_rec.py --no-promote`), so
   the base build is the raw graph; it is still faster than FP32.
-  `rec_cjk`/`rec_rtl`/`rec_world` ship **FP32**.
+  The three **script-group** recognizers (`rec_cjk`/`rec_rtl`/`rec_world`) are
+  int8 too, but each needs **its own script's calibration set** (see below).
 - **Speed and memory** (deployment config: pool = 8 workers x 1 intra-op
   thread, 199-page FUNSD corpus, this 16-core box, best of 2):
   FP32 `rec`+`order` **15.6 pages/s, peak RSS 3.08 GB** →
@@ -107,6 +108,38 @@ delta / baseline.
   (0.8974 at both bars), and upright pages are unaffected (0.8680 at both).
   Kept at 0.98: on **real** data the bar is neutral-to-better, the upside-down
   gain comes from a synthetic set, and the bar destroys fewer pages outright.
+
+### Script-group recognizers (`rec_cjk`/`rec_rtl`/`rec_world`): int8 with per-script calibration — `v0.29.0`
+
+- **What:** the three group recognizers ship int8 (same recipe as the base rec:
+  raw graph, QDQ, per-channel `QUInt8`/`QInt8`, MinMax, asymmetric,
+  stem+blocks 0-1 FP32, `--no-promote`, `--rec-height 32`). Size: 10.18 + 4.81
+  + 5.63 MB → 3.62 + 2.11 + 2.34 MB (**−12.6 MB embedded**).
+- **The calibration set must be the script the model reads.** A group model
+  calibrated on the wrong script is not merely inaccurate, it *confabulates*:
+  `rec_cjk` calibrated on Latin (FUNSD) crops reads CJK as garbage
+  (`chinese_essay` character similarity 0.62 vs FP32, lines like
+  `ő束了，z于ầ束了`). With a CJK calibration set the same build is identical to
+  FP32 on that page.
+- **Which script belongs to which model** (from the v1.1.0 `meta.json` vocabs):
+  `rec_rtl` = Arabic + Hebrew; `rec_world` = Devanagari, Bengali, Armenian,
+  Georgian, Ethiopic; `rec_cjk` = Han + Kana; **Greek and Cyrillic are the
+  base model's**, not `rec_world`'s. Calibrating `rec_world` on Greek/Cyrillic
+  pages (they read fine, but the model never sees them) halves the useful
+  calibration data — that mistake cost 5pp of character overlap in the first
+  attempt.
+- **Guard built for it** (throwaway, `INDRA_SCRIPT_DIR`): synthetic pages per
+  script, rendered with the system Noto fonts (raqm shaping) from real OPB
+  multilingual text, with **exact ground truth**. Character recall
+  (int8 / FP32): rtl **0.9769 / 0.9772**, world **0.9467 / 0.9468**,
+  cjk **0.9266 / 0.9300**. On 35 *real* OPB multilingual pages the int8 output
+  keeps **99.2%** of the FP32 characters (worst page 97.2%); the clean real CJK
+  page (`chinese_essay`) is character-identical.
+- **Tripwires:** FUNSD guard 0.8680 → 0.8678 (Latin path untouched); gauntlet
+  cord 0.6687 → 0.6626, sroie 0.8514 (unchanged), xfund 0.9072 (unchanged),
+  funsd-degraded 0.6661 → 0.6686, funsd-photo 0.5624 → 0.5610 — all noise.
+- `--fp32-blocks 4` was tried for `rec_cjk` (the worst case) and did not help
+  (character overlap 0.9815 → 0.9821 for +0.55 MB), so the recipe stays at 2.
 
 ### PDFium concurrency: one library instance per concurrent document — `v0.28.1`
 

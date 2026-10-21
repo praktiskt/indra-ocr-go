@@ -6,8 +6,8 @@ library (`tools/` only holds `calib`, a small `main` package).
 - `models/rec.onnx` — base recognizer, mixed-precision int8 (`quantize_rec.py`,
   `--no-promote --rec-height 96`).
 - `models/rec_cjk.onnx`, `models/rec_rtl.onnx`, `models/rec_world.onnx` — the
-  script-group recognizers, shipped as upstream **FP32**. Group-rec int8 needs a
-  per-script calibration set and a per-script guard; see below.
+  script-group recognizers, mixed-precision int8 with **per-script calibration**
+  (`quantize_rec.py`, `--no-promote --rec-height 32`; see below).
 - `models/order.onnx` — reading order, tab-head-stripped + dynamic int8
   (`quantize_order.py`).
 - `models/det.onnx`, `models/orient.onnx`, `models/script.onnx` and the math
@@ -88,25 +88,48 @@ swapped.
 
 ## Script-group recognizers (`rec_cjk`, `rec_rtl`, `rec_world`)
 
-Shipped **FP32**. The v1.1.0 models are FP32 on the Hub; quantizing them needs
-(1) calibration on *their* script — Latin FUNSD crops make `rec_cjk`
-confabulate CJK (chinese_essay char-sim 0.62 vs FP32) — and (2) a per-script
-quality guard (the FUNSD guard is Latin-only; use OPB `multilingual` +
-`multiling_finepdfs`, or a scratch subset of those pages).
+Shipped int8, same recipe as the base rec (`--no-promote --rec-height 32
+--fp32-blocks 2`), but each with **its own script's calibration set**.
 
-With a CJK calibration set (synthetic Noto CJK pages + real Hani/Jpan pages)
-`rec_cjk` int8 recovers (chinese_essay 0.98, `cmn_Hani` 0.987). `rec_world`
-(with Greek/Cyrillic/Devanagari/Armenian/Bengali) and `rec_rtl` (Arabic/Hebrew)
-still regressed on 27 real OPB multilingual pages even with per-script
-calibration (mean char-sim 0.83), so they stay FP32 until a guard exists.
-The tooling is ready:
+**Which script belongs to which model** (from the v1.1.0 `meta.json` vocabs):
+
+| model | scripts |
+|---|---|
+| `rec_cjk` | Han, Kana |
+| `rec_rtl` | Arabic, Hebrew |
+| `rec_world` | Devanagari, Bengali, Armenian, Georgian, Ethiopic |
+| `rec` (base) | Latin, Greek, Cyrillic (+ the Latin digits/ punctuation) |
+
+Greek and Cyrillic are the **base** model's, not `rec_world`'s: calibrating
+`rec_world` on them wastes half the calibration set.
+
+**Calibrate on the script, or the model confabulates.** `rec_cjk` calibrated on
+Latin (FUNSD) crops reads CJK as garbage (`chinese_essay` character similarity
+0.62 vs FP32, lines like `ő束了，z于ầ束了`); with a CJK calibration set the same
+build is character-identical to FP32 on that page.
+
+The shipped calibration sets are synthetic pages rendered with the system Noto
+fonts (raqm shaping) from real OPB multilingual text — 40 rtl (Arabic/Hebrew),
+100 world (5 Indic/Caucasian/Ethiopic), 40 cjk (Han/Kana) pages, one directory
+per group. A group guard uses the same pages (they carry the exact ground
+truth) and scores **character** recall, plus the FUNSD guard and the gauntlet
+as tripwires. Results: character recall int8/FP32 — rtl 0.9769/0.9772, world
+0.9467/0.9468, cjk 0.9266/0.9300; on 35 real OPB multilingual pages the int8
+output keeps 99.2% of the FP32 characters.
 
 ```sh
-INDRA_CORPUS_DIR=/path/to/script_corpus go run ./tools/calib -out /tmp/g_calib -window 1
+# 1. Calibration crops for ONE group (band crops, not the base rec's window).
+INDRA_CORPUS_DIR=/path/to/<group>_pages go run ./tools/calib -out /tmp/g_calib -window 1
+
+# 2. Quantize that group.
 uv run --with onnx --with onnxruntime --with numpy \
   tools/quantize_rec.py --model /tmp/rec_<group>_fp32.onnx --calib /tmp/g_calib \
-  --out models/rec_<group>.onnx --fp32-blocks 2 --rec-height 32
+  --out models/rec_<group>.onnx --fp32-blocks 2 --rec-height 32 --no-promote
 ```
+
+Validate on the group guard (character recall) **and** the FUNSD guard +
+gauntlet before shipping. `--fp32-blocks 4` was tried for `rec_cjk` and did not
+help (0.9815 → 0.9821 character overlap for +0.55 MB).
 
 ## Regenerate `models/order.onnx`
 
