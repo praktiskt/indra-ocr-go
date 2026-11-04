@@ -44,6 +44,20 @@ delta / baseline.
   0.7362 (-0.6pp, char 0.9141 -> 0.9153), funsd-degraded and xfund identical,
   funsd-photo word 0.7328 -> 0.7335, sroie identical. Within the 1pp reject
   bar on the noisiest subset (cord GT denominators are tiny), char recall up.
+- **Per-page audit (the reject-rule statistic, run afterwards against a
+  `v0.34.0` worktree):** skew angle moves on **8 of 349** pages (3/199 FUNSD,
+  5/150 gauntlet; deltas 0.1-0.3 deg). Word recall **down >5pp on exactly one
+  page** (`cord_28`: 7/8 -> 6/8 words, alongside a 3.9 -> 4.0 deg angle move),
+  **up >5pp on none**; character recall **down >5pp on none**, up on none. So
+  the rule's ">10 pages degraded >5pp" is met with 1/150.
+- **Tilt check (70 synthetic pages = 10 FUNSD x 0.5/1/2/3/6/-1.5/-3.5 deg,
+  exact GT):** skew angle differs on **1/70** pages by 0.1 deg; **0 pages**
+  down or up >5pp on word or char; aggregate delta -0.4pp at -1.5 deg (one
+  page), other angles identical.
+- **Confidence:** the change is a sampling-density change that leaves the
+  argmax alone on ~97% of pages; on the rest the angle moves by <=0.3 deg,
+  which the recognizer absorbs (1 word lost across 349 real+150 synthetic
+  pages, no page-level character degradation).
 - **Upstream delta:** upstream samples the 0.5 deg pass at stride 2 and the
   0.1 deg pass at stride 1; see `DEVIATIONS.md`.
 
