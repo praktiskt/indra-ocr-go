@@ -18,6 +18,43 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### Recognizer batching: `WidthBatches` ratio 1.3 -> 1.15 — `v0.33.0`
+
+- **What:** `WidthBatches` (`detinput.go`, port of upstream `width_batches`)
+  groups detected lines narrowest-first into padded rec batches. The batch's
+  padding ratio (widest/narrowest allowed in one batch) goes from upstream's
+  **1.3** to **1.15**; `minWidth` 64 and `maxArea` 64*640 are unchanged. Result:
+  **more, tighter batches** (6.42 -> 9.71 per page, +51% `Run` calls) with much
+  less wasted width.
+- **Speed (deployment config: pool 8 workers x 1 thread, 199-page FUNSD, idle
+  box, best-of-2 within 4 interleaved A/B rounds, order alternating to cancel
+  drift):**
+  - pool **15.91 -> 16.67 pages/s (+4.8%)**, every round positive
+    (+4.1 / +4.4 / +5.0 / +5.8%);
+  - rec stage **1.824 -> 1.745 ms/line (-4.3%)** (18.4-21.3 s -> 19.5-19.9 s
+    for the corpus's 11 332 lines);
+  - peak RSS **3026 -> 2948 MB (-2.6%)** (smaller padding buffers).
+  The extra `Run` count is paid for by the drop in padded pixels: rec here is
+  pixel-compute-bound, not launch-bound (see the rejected rec batching retune
+  above), so this is the side of the trade that wins.
+- **Quality:** guard **0.9318 -> 0.9318** (identical), **0/199 pages degraded
+  >5pp**, 0 improved >5pp. The change is **not** output-preserving: 117/199
+  pages have 462 lines whose text shifts (~3.9% of lines), plus one page loses
+  one line — padding composition changes the batch width, so convolution
+  accumulation order (and therefore occasional borderline CTC argmaxes) moves.
+  That is why the gauntlet was run.
+- **Gauntlet (150 pages, differential, threads=2):** cord word 0.7423=,
+  char 0.9165 -> 0.9153; funsd-degraded word 0.6915 -> 0.6919, char 0.8188=;
+  funsd-photo word 0.7317 -> 0.7338, char 0.9557=; sroie char 0.9396=;
+  xfund word 0.9634 -> 0.9640, char 0.9555 -> 0.9559. All within noise, no
+  subset regresses.
+- **Note:** the local sroie word metric is unusable with this extraction (GT
+  labels are box-level strings; 0.04) — its char metric carries the signal.
+  Synthetic degraded/photo subsets were rebuilt locally, so absolute numbers
+  differ from the historical rows; the differential is what counts.
+- **Upstream delta:** this is a deliberate departure from upstream's 1.3, see
+  `DEVIATIONS.md`.
+
 ### Math on a PDF text layer: keep the layer's text when the reading is garbled — `v0.32.0`
 
 - **Reported (v0.31.0):** with `Math(true)` on a PDF text layer, ordinary prose
@@ -841,6 +878,9 @@ delta / baseline.
   not launch-bound; padding dominates. The current `WidthBatches` (ratio 1.3,
   area 40960) is near-optimal; tighter buckets (r1.15) only ~5% rec better.
   Leave it.
+- **Superseded by `v0.33.0`:** the ~5% was real and the *pool* sees +4.8% on
+  the interleaved A/B, so the ratio is now 1.15 (area unchanged). The
+  "bigger batches are slower" finding stands — see the accepted entry above.
 
 ### Rec: shape-static model / parallel rec sessions / int8-only-Conv
 
