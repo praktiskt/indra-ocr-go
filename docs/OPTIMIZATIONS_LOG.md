@@ -18,41 +18,46 @@ delta / baseline.
 
 ## Accepted (shipped)
 
-### Recognizer batching: `WidthBatches` ratio 1.3 -> 1.15 — `v0.33.0`
+### Recognizer batching: `WidthBatches` ratio 1.3 -> 1.15 -> 1.05 — `v0.33.0` / `v0.34.0`
 
 - **What:** `WidthBatches` (`detinput.go`, port of upstream `width_batches`)
   groups detected lines narrowest-first into padded rec batches. The batch's
-  padding ratio (widest/narrowest allowed in one batch) goes from upstream's
-  **1.3** to **1.15**; `minWidth` 64 and `maxArea` 64*640 are unchanged. Result:
-  **more, tighter batches** (6.42 -> 9.71 per page, +51% `Run` calls) with much
-  less wasted width.
-- **Speed (deployment config: pool 8 workers x 1 thread, 199-page FUNSD, idle
-  box, best-of-2 within 4 interleaved A/B rounds, order alternating to cancel
-  drift):**
-  - pool **15.91 -> 16.67 pages/s (+4.8%)**, every round positive
-    (+4.1 / +4.4 / +5.0 / +5.8%);
-  - rec stage **1.824 -> 1.745 ms/line (-4.3%)** (18.4-21.3 s -> 19.5-19.9 s
-    for the corpus's 11 332 lines);
-  - peak RSS **3026 -> 2948 MB (-2.6%)** (smaller padding buffers).
-  The extra `Run` count is paid for by the drop in padded pixels: rec here is
-  pixel-compute-bound, not launch-bound (see the rejected rec batching retune
-  above), so this is the side of the trade that wins.
-- **Quality:** guard **0.9318 -> 0.9318** (identical), **0/199 pages degraded
-  >5pp**, 0 improved >5pp. The change is **not** output-preserving: 117/199
-  pages have 462 lines whose text shifts (~3.9% of lines), plus one page loses
-  one line — padding composition changes the batch width, so convolution
-  accumulation order (and therefore occasional borderline CTC argmaxes) moves.
-  That is why the gauntlet was run.
-- **Gauntlet (150 pages, differential, threads=2):** cord word 0.7423=,
-  char 0.9165 -> 0.9153; funsd-degraded word 0.6915 -> 0.6919, char 0.8188=;
-  funsd-photo word 0.7317 -> 0.7338, char 0.9557=; sroie char 0.9396=;
-  xfund word 0.9634 -> 0.9640, char 0.9555 -> 0.9559. All within noise, no
-  subset regresses.
+  padding ratio (widest/narrowest allowed in one batch) went from upstream's
+  **1.3** to **1.15** (`v0.33.0`), then to **1.05** (`v0.34.0`); `minWidth` 64
+  and `maxArea` 64*640 are unchanged. Result: many more, tighter batches
+  (6.42 -> 16.74 per page) with much less wasted width.
+- **Ratio sweep (rec stage, 1 thread, 199-page FUNSD, 3 interleaved rounds,
+  order rotated, best-of-2 per round, ms/line):** 1.15 **1.789**, 1.10 1.772,
+  **1.05 1.749**, 1.02 1.614*, 1.00 1.635* — (*second session, same ordering;
+  absolute level shifts with the box's thermal state, compare within a sweep).
+  The curve bottoms out at **1.05**: below it the extra `Run` calls cost more
+  than the padding they save.
+- **Speed (deployment config: pool 8 workers x 1 thread, interleaved A/B,
+  order alternating, 199-page FUNSD, best-of-2):**
+  - 1.3 -> 1.15: pool **15.91 -> 16.67 pages/s (+4.8%)**, rec
+    **1.824 -> 1.745 ms/line (-4.3%)**, peak RSS **3026 -> 2948 MB (-2.6%)**;
+  - 1.15 -> 1.05: pool **18.13 -> 18.82 pages/s (+3.8%)**, rec
+    **1.789 -> 1.749 ms/line (-2.2%)** at 1 thread; all paired rounds positive.
+  Rec is pixel-compute-bound, not launch-bound (see the rejected rec batching
+  retune below), so this is the side of the trade that wins.
+- **Quality:** guard **0.9318 -> 0.9318 -> 0.9319**; **0/199 pages degraded
+  >5pp** at both steps (and 0 improved >5pp). The change is **not**
+  output-preserving: vs 1.3, 131/199 pages shift 611 lines; vs 1.15, 122/199
+  pages shift 440 lines (~3.7% of lines) — batch width changes convolution
+  accumulation order, so borderline CTC argmaxes flip. That is why the
+  gauntlet was run at both steps.
+- **Gauntlet (150 pages, differential, threads=2):** 1.3 -> 1.15 cord word
+  equal, char 0.9165 -> 0.9153; funsd-degraded word 0.6915 -> 0.6919, char
+  equal; funsd-photo word 0.7317 -> 0.7338, char equal; sroie char equal;
+  xfund word 0.9634 -> 0.9640, char 0.9555 -> 0.9559. 1.15 -> 1.05: cord char
+  0.9153 -> 0.9141; degraded word 0.6919 -> 0.6901; photo word 0.7338 ->
+  0.7328, char 0.9557 -> 0.9541; sroie identical; xfund word 0.9640 -> 0.9638.
+  Every subset within 0.2pp, no regression.
 - **Note:** the local sroie word metric is unusable with this extraction (GT
   labels are box-level strings; 0.04) — its char metric carries the signal.
   Synthetic degraded/photo subsets were rebuilt locally, so absolute numbers
   differ from the historical rows; the differential is what counts.
-- **Upstream delta:** this is a deliberate departure from upstream's 1.3, see
+- **Upstream delta:** deliberate departure from upstream's 1.3, see
   `DEVIATIONS.md`.
 
 ### Math on a PDF text layer: keep the layer's text when the reading is garbled — `v0.32.0`
@@ -878,9 +883,11 @@ delta / baseline.
   not launch-bound; padding dominates. The current `WidthBatches` (ratio 1.3,
   area 40960) is near-optimal; tighter buckets (r1.15) only ~5% rec better.
   Leave it.
-- **Superseded by `v0.33.0`:** the ~5% was real and the *pool* sees +4.8% on
-  the interleaved A/B, so the ratio is now 1.15 (area unchanged). The
-  "bigger batches are slower" finding stands — see the accepted entry above.
+- **Superseded by `WidthBatches` 1.15 (v0.33.0) and then 1.05 (v0.34.0):** the
+  ~5% was real and the pool sees **+4.8%** (1.3 -> 1.15) and a further
+  **+3.8%** (1.15 -> 1.05) on interleaved A/Bs, so the shipped ratio is now
+  1.05 (area unchanged). The "bigger batches are slower" finding stands — see
+  the accepted entry above.
 
 ### Rec: shape-static model / parallel rec sessions / int8-only-Conv
 

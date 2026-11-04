@@ -119,10 +119,12 @@ func WidthBatches(widths []int, maxBatch int) [][]int {
 		order[i] = i
 	}
 	sort.Slice(order, func(a, b int) bool { return widths[order[a]] < widths[order[b]] })
-	// 1.15 measured 4.8% faster at the pool / 4.3% on the rec stage vs 1.3
-	// (fewer padded pixels, more runs); quality-neutral, see
-	// docs/OPTIMIZATIONS_LOG.md. 1.3 was the port of upstream's value.
-	const maxRatio = 1.15
+	// 1.05 measured a further 3.8% pool gain over 1.15 (and 1.15 was 4.8%
+	// over upstream's 1.3): rec is pixel-compute-bound, so padded width costs
+	// more than the extra Run calls. Swept 1.30/1.15/1.05/1.02/1.00 — the
+	// optimum is ~1.05 (1.02 and 1.00 lose to run overhead). Quality-neutral,
+	// see docs/OPTIMIZATIONS_LOG.md.
+	const maxRatio = 1.05
 	const minWidth = 64
 	const maxArea = 64 * 640
 	var batches [][]int

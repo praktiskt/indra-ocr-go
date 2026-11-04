@@ -7,22 +7,25 @@ is not mistaken for a bug. Everything else is expected to match; the model-level
 changes are in [`OPTIMIZATIONS_LOG.md`](OPTIMIZATIONS_LOG.md) and the evaluation
 method in [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-eval/SKILL.md).
 
-## Recognizer batching: padding ratio 1.15 instead of 1.3
+## Recognizer batching: padding ratio 1.05 instead of 1.3
 
 - **What:** `WidthBatches` (`detinput.go`, the port of upstream
   `rec_preproc.width_batches`) allows a batch's widest line to be at most
-  **1.15x** its narrowest (upstream: 1.3). `minWidth` and `maxArea` are
+  **1.05x** its narrowest (upstream: 1.3). `minWidth` and `maxArea` are
   unchanged.
-- **Effect:** ~1.5x more batches per page with less right-padding. Measured
-  **+4.8% pool throughput** (8x1 thread), **-4.3% rec stage time**, **-2.6%
-  peak RSS**; guard/FUNSD recall unchanged (0.9318) and the gauntlet is
-  neutral.
+- **Effect:** ~2.6x more batches per page with much less right-padding.
+  Measured **+4.8% pool throughput** for 1.3 -> 1.15 and a further **+3.8%**
+  for 1.15 -> 1.05 (8x1 thread); rec stage **-4.3%** then **-2.2%**; peak RSS
+  -2.6%. A ratio sweep puts the optimum at ~1.05 (1.02 and 1.00 lose to Run
+  overhead). Guard/FUNSD recall unchanged (0.9318 -> 0.9319) and the gauntlet
+  is neutral at both steps.
 - **Why:** the recognizer is pixel-compute-bound, so padded pixels cost more
-  than the extra `Run` calls; upstream's 1.3 leaves ~5% of rec on the table.
-- **Output delta:** 117/199 FUNSD pages have line text that differs (462 lines)
-  because a different batch width changes convolution accumulation order and
-  occasional borderline CTC argmaxes. Recall is unaffected.
-- **Where:** `detinput.go`; evidence in `OPTIMIZATIONS_LOG.md` (`v0.33.0`).
+  than the extra `Run` calls; upstream's 1.3 leaves ~8% of rec on the table.
+- **Output delta:** ~120/199 FUNSD pages have line text that differs (~3.7% of
+  lines) because a different batch width changes convolution accumulation order
+  and occasional borderline CTC argmaxes. Recall is unaffected.
+- **Where:** `detinput.go`; evidence in `OPTIMIZATIONS_LOG.md` (`v0.33.0`,
+  `v0.34.0`).
 
 ## Text layer: spacing diacritics are composed
 
