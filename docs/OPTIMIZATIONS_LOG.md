@@ -18,6 +18,43 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### Recognizer: restored the suppressed Vietnamese class priors — `v0.36.0`
+
+- **What:** `tools/rewrite_weights.py` rewrites one int32 per class in the
+  recognizer's quantized classifier bias. The 92 Vietnamese Extended
+  Additional classes (U+1EA0..U+1EF9 plus `Đ`/`đ`) are raised from the
+  quantization floor (**-15.96**) to **-10.0**. No other class and no head row
+  changes. Reproduce with:
+
+  ```sh
+  uv run --with onnx --with numpy tools/rewrite_weights.py \
+      --model models/rec.onnx --out models/rec.onnx --preset vn-priors --target -10
+  ```
+
+- **Why (the read):** these classes were not "missing" — their head rows exist
+  (e.g. `Ạ` norm 1.124, cos to `A` 0.779) but their **priors are crushed at the
+  floor**, so they can never win. `Đ` and `D` even share one direction
+  (cos **1.0000**), and 568 classes share the single "unused" direction at the
+  same floor-15.96 bias. The bias is a learned unigram prior; raising it is the
+  minimal edit that restores the classes without touching any other decision
+  boundary. Cf. weight-space programming: remove the suppressant, do not add
+  capacity.
+- **Controlled capability check** (92 chars, carriers `aXa`/`Xa`/`aX`, 12
+  system fonts, 3 sizes; this set was used to choose the target, so it is a
+  capability check, not a generalization claim): word-exact **0.059 -> 0.685**,
+  character **0.727 -> 0.763**.
+- **Held-out check** (200 real Vietnamese words from a Vietnamese Wikipedia
+  article, 3 fonts, 600 renders): word-exact **0.853 -> 0.855**, character
+  **0.959 -> 0.959**.
+- **Regression tripwires:** FUNSD guard **0.9319 -> 0.9318**; gauntlet cord
+  **0.7362**, funsd-degraded **0.6901**, funsd-photo **0.7335 -> 0.7338**,
+  sroie **0.0400**, xfund **0.9638** — neutral everywhere (one extra photo
+  word).
+- **Target sweep:** the same edit at -8 gives a lower word-exact on the
+  controlled set (0.648) and at -12 less again (0.667); -10 is the knee.
+- **Upstream delta:** upstream indra ships the floor priors, so its Vietnamese
+  Extended Additional output is wrong in the same way; see `DEVIATIONS.md`.
+
 ### Skew search: stride 4 / 2 on the refinement passes — `v0.35.0`
 
 - **What:** `estimateSkewPy` (`upright.go`) scores row sharpness over 46
@@ -693,6 +730,53 @@ delta / baseline.
 
 ## Rejected (do not re-run without new data)
 
+### Rec: rewrite the dead Vietnamese head rows — rejected
+
+- **What:** replaced the 92 Vietnamese Extended Additional head rows with
+  LDA/nearest-centroid rows fitted to trunk features extracted from 12 system
+  fonts (the same 92-class set the shipped bias edit now uses), converted the
+  head to FP32, and left every other row intact.
+- **Result:** the isolated-glyph controlled set improved (VN word-exact
+  0.059 -> ~0.60), but the **FUNSD guard collapsed 0.9319 -> 0.8465** and every
+  gauntlet subset fell (cord -5pp, degraded -3pp, photo -3pp, xfund -5pp).
+  The fitted rows steal ordinary Latin letters.
+- **Why:** the rows were fitted on isolated glyphs; real word-context features
+  differ, and the new directions are not discriminative against English. A
+  head row can only rotate/scale an existing 128-d feature; it cannot add a
+  feature the trunk did not learn. Do not retry without word-context features
+  **and** hard English negatives (and expect a smaller ceiling).
+
+### Rec: per-class logit-gap bias raises — rejected
+
+- **What:** for each VN class, measured the median logit gap to the winning
+  class on its own rendered glyphs and raised its bias by gap + 2, capped by
+  the headroom on its base letter (80/92 classes had >1 logit of headroom).
+- **Result:** isolated VN **0.059 -> 0.113**, but live letters (ASCII
+  alnum) **0.868 -> 0.837**. The VN rows are too collinear to separate by
+  prior alone; raising one just moves the confusion to the next sibling.
+- **Why:** the dead classes share one direction (568 of them at cos > 0.99999
+  in FP32); a bias cannot separate near-identical directions.
+
+### Det: equalize the DepthToSpace subpixel biases — rejected
+
+- **What:** the core rows `(1,0)`/`(1,1)` (rows 2,3 of `head.2`) are 0.872
+  logits stricter than rows `(0,0)`/`(0,1)` despite near-identical filters;
+  raised them by +0.872.
+- **Result:** guard **0.9319 -> 0.9324**, cord **+1.2pp**, funsd-degraded
+  -0.2pp, **funsd-photo -1.0pp**, xfund -0.1pp. Mixed; not a win.
+- **Why:** the lower subpixel row being stricter is apparently load-bearing
+  for the box decode; equalizing it trades receipt recall for photo precision.
+
+### Orient: normalize the vertical head row — rejected
+
+- **What:** class 4 (vertical) has row norm **3.623** vs 2.336/2.413/2.339/
+  2.214 for the four rotations and the only negative bias (-0.146); scaled
+  row 4 and its bias by 0.65 to match.
+- **Result:** bit-identical output on FUNSD, cord, degraded, photo, sroie and
+  xfund. No vertical false positives exist in the guard/gauntlet to remove;
+  a scale change would only risk vertical recall, which those sets do not
+  measure. Not shipped.
+
 ### int8 Conv1d -> Conv2d promotion (restore the NCHWc bet on the int8 graph) — neutral, not faster
 
 - **Hypothesis (from re-auditing v0.16.0):** the fp32 Conv1d→Conv2d promotion
@@ -1002,7 +1086,34 @@ Done while hunting for further surgery (do not redo):
 
 ---
 
-## Corrections / stale notes
+## Candidates (measured, not shipped)
+
+### LM gate: run the beam search on every line — measured `v0.36.0` candidate
+
+- **What:** `meta.json` `lm_params.base` gate 0.9 -> 1.0, alpha 0.5 -> 0.4.
+  Every line (not just `conf < 0.9`) gets the CTC prefix beam search with the
+  n-gram LM.
+- **Result (199 FUNSD + 150 gauntlet):** guard **0.9319 -> 0.9437
+  (+1.18pp)**; cord 0.7362 -> 0.7423 (+0.61); funsd-degraded 0.6901 -> 0.7072
+  (+1.71); funsd-photo 0.7335 -> 0.7488 (+1.53); xfund 0.9638 -> 0.9591
+  (-0.47). Alpha 0.4 beat 0.5 (xfund -0.17 vs -0.47) at equal guard.
+- **Not shipped:** this is a decode-path change, not a model-weight change;
+  it is held for a separate decision. Numbers above are the evidence if it is
+  taken.
+
+### Recognizer: full FP32 — measured `v0.36.0` candidate
+
+- **What:** swap `models/rec.onnx` back to the upstream FP32 recognizer.
+- **Result:** guard **0.9319 -> 0.9343 (+0.24pp)**; cord 0.7362 -> 0.7485
+  (+1.23); funsd-degraded 0.6901 -> 0.6951 (+0.50); funsd-photo 0.7335 ->
+  0.7640 (+3.05); xfund 0.9638 -> 0.9644 (+0.06). Held-out Vietnamese words
+  word-exact 0.853 -> 0.865, character 0.959 -> 0.961. Size 2.2 -> 5.0 MB,
+  and the recognizer is the pool's hot stage.
+- **Not shipped:** size and speed; the shipped build stays mixed-precision
+  int8. The FP32 delta is the quantization cost on accented Latin, not a
+  pipeline bug.
+
+
 
 - **Skew estimator**: an older note said "600px + 3-level search". The shipped
   estimator is `estimateSkewPy` (800px thumbnail, 0.5deg coarse then 0.1deg fine,

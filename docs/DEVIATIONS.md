@@ -7,7 +7,27 @@ is not mistaken for a bug. Everything else is expected to match; the model-level
 changes are in [`OPTIMIZATIONS_LOG.md`](OPTIMIZATIONS_LOG.md) and the evaluation
 method in [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-eval/SKILL.md).
 
+## Recognizer: Vietnamese Extended Additional priors restored
+
+- **What:** the 92 Vietnamese Extended Additional classes (U+1EA0..U+1EF9 plus
+  `Đ`/`đ`) have their quantized classifier bias raised from the floor
+  (**-15.96**) to **-10** by `tools/rewrite_weights.py --preset vn-priors
+  --target -10`. No head row and no other class changes. Upstream indra ships
+  the floor priors.
+- **Effect:** on isolated glyphs the classes become reachable (controlled
+  92-class set: word-exact **0.059 -> 0.685**); on held-out real Vietnamese
+  words the gain is neutral-positive (**0.853 -> 0.855** word-exact, character
+  unchanged); FUNSD **0.9319 -> 0.9318** and the gauntlet are neutral.
+- **Why:** the rows exist but their learned prior was crushed at the
+  quantization floor, so the classes could never win (`Đ` and `D` even share
+  one direction, cos 1.0000). Raising the prior is the minimal edit that keeps
+  every other decision boundary untouched; rewriting the rows was tried and
+  destroyed English (see `OPTIMIZATIONS_LOG.md`).
+- **Where:** `models/rec.onnx`, `tools/rewrite_weights.py`; evidence in
+  `OPTIMIZATIONS_LOG.md` (`v0.36.0`).
+
 ## Skew search refinement: sparser sampling
+
 
 - **What:** `estimateSkewPy` samples every 4th pixel on the 0.5 deg refinement
   pass and every 2nd on the 0.1 deg pass (upstream: 2nd and every pixel).

@@ -199,6 +199,43 @@ python3 tools/gen_compose.py > compose_table.go
 accented i/j as a dotless glyph) to the dotted base's result. To add an accent,
 add its spacing glyph to `SPACING` and regenerate.
 
+## Rewriting shipped-model weights (`rewrite_weights.py`)
+
+Weight-space programming for the shipped QDQ models: a classifier bias is one
+int32 plus a float scale per class, so a class prior can be rewritten without
+touching anything else. The tool maps characters to class ids through
+`models/meta.json` and edits the quantized bias in place.
+
+The shipped `models/rec.onnx` carries one such edit (idempotent — re-running it
+on the shipped file changes nothing):
+
+```sh
+uv run --with onnx --with numpy tools/rewrite_weights.py \
+    --model models/rec.onnx --out models/rec.onnx \
+    --preset vn-priors --target -10
+```
+
+`vn-priors` raises the 92 Vietnamese Extended Additional classes
+(U+1EA0..U+1EF9 plus `Đ`/`đ`) from the quantization floor (-15.96) to -10. Those
+rows exist but their prior was crushed, so the classes could never win; the
+edit restores them and leaves every other class and row alone. Generic edits
+take a JSON spec:
+
+```sh
+cat > /tmp/edit.json <<'EOF'
+{"chars": "ẠẢẤ", "target": -10.0}
+EOF
+uv run --with onnx --with numpy tools/rewrite_weights.py \
+    --model models/rec.onnx --out /tmp/rec_edit.onnx --spec /tmp/edit.json
+```
+
+Validate with the corpus guard and the gauntlet before shipping. The v0.36
+edit measured: FUNSD 0.9319 -> 0.9318, gauntlet neutral, held-out Vietnamese
+words 0.853 -> 0.855 word-exact, isolated Vietnamese glyphs 0.059 -> 0.685.
+**Do not rewrite head rows with this tool**: a fitted-row rewrite of the same
+classes was tried and collapsed the FUNSD guard to 0.8465 (see
+`docs/OPTIMIZATIONS_LOG.md`).
+
 ## Native libraries (`lib/`)
 
 These are embedded (linux/amd64) and loaded at runtime — ONNX Runtime via
