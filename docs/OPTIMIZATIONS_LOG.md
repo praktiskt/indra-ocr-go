@@ -608,6 +608,49 @@ delta / baseline.
 
 ## Rejected (do not re-run without new data)
 
+### int8 Conv1d -> Conv2d promotion (restore the NCHWc bet on the int8 graph) — neutral, not faster
+
+- **Hypothesis (from re-auditing v0.16.0):** the fp32 Conv1d→Conv2d promotion
+  made the recognizers fast by handing the graph to ORT's NCHWc layout
+  transformer; when the recognizers went int8 (`v0.29.0`) the freshly exported
+  `/rec/context` module also broke the promotion script (shape inference), so
+  int8 shipped 1-D without ever measuring the bet. Maybe re-kindling the
+  promotion **on the int8 files in place** recovers a similar gain.
+- **Tool:** `tools/quantize_rec.py --promote-only` (`promote_int8`) promotes
+  the **shipped QDQ files directly** — no re-quantization, no calibration: all
+  50 block convs get 4-D attrs/weights (behind `DequantizeLinear` or direct),
+  the stem region is bridged to 4-D with Unsqueeze nodes, head stays 1-D (one
+  Squeeze before it), the mask/SE ReduceSum axes become [2,3] (they live in
+  Constant-node outputs — the initializers-only version of this rewrite
+  silently missed them), and the `Shape(stem)[2]`-driven mask-length Gather
+  index is remapped 2→3 — missing that one yields garbage output (lengths=1)
+  that still loads and "runs".
+- **Equivalence proof (synthetic crops, all four models):** `ids`, `lengths`,
+  and `conf` **bit-identical** to the shipped models; over the whole graph the
+  largest intermediate diff is the conv accumulation order (~3e-6).
+- **But zero NCHWc:** ORT's NCHWc transformer is **fp32-only**. Positive
+  control: a hand-built 4-D fp32 conv graph acquires `*_nchwc` convs +
+  `ReorderInput`/`ReorderOutput` on this runtime (embedded ORT 1.31.0 / pip
+  1.31.1). A hand-built 4-D `QLinearConv` graph gets none — only the NHWC
+  Transpose that the QGEMM path has always used; same for the promoted int8
+  models' optimized graphs (0 NCHWc ops). The v0.16 gain came from the fp32
+  path, which no longer exists since the int8 switch.
+- **Timing (1 thread, min-of-8×10 runs, white pages with ink speckle):**
+  shipped vs promoted — rec 1.80/1.72 ms (W=400) and 5.30/5.18 ms (W=1200);
+  rec_cjk 4.04/4.63 and 13.50/15.33 ms; rec_rtl 1.31/1.24 and 3.59/3.62 ms;
+  rec_world 1.63/1.56 and 4.50/4.60 ms. Parity for rec/rtl/world at narrow
+  widths, rec_cjk **−12%** (its big head keeps the extra 4-D footwork
+  meaningful). No deployment-thread-count remeasure needed for a no-gain.
+- **Verdict:** rejected — "neutral + faster" fails on the second leg
+  (rec_cjk regresses, the rest are noise-level). The shipped models stay 1-D
+  Conv1d. The `--promote-only` capability is kept in the tool (it is lossless
+  and useful the day ORT's NCHWc transformer learns int8 convs); do not use it
+  for shipped builds.
+- **Both earlier "regression" numbers (0.70–0.81×) were an artifact of the
+  then-broken mask length** (the models ran with L=1 and wrong SE reduces);
+  with the fixed tool the honest result is parity-to-negative, not a
+  regression.
+
 ### Det input shape bucketing (coarser than /32) — no churn to fix
 
 - **Hypothesis:** every page produces a distinct `det.onnx` input shape

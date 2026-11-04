@@ -42,12 +42,17 @@ Three choices carried the accuracy (details and the A/B evidence are in
    only lowers 2-D Convs to the fast NCHWc layout; 1-D Convs stay on the slow
    generic path (microsoft/onnxruntime#16047). The recognizer's blocks are all
    `Conv1d`, so this adds a unit spatial axis and keeps the graph 4-D. Pure
-   speed, no accuracy: `+22%` on the fp32 recognizer, `+8%` on int8, `0` CTC
-   lines changed (diffs ~1e-6 from accumulation order). Before the promotion
-   the optimized graph had ~2 NCHWc ops; after, ~117. **Not used for the v1.1
-   base rec**: its new `/rec/context` module has a genuinely 1-D `.proj/Conv`
-   whose input stays 3-D, so promoting it breaks shape inference — the base
-   build skips promotion (`--no-promote`); still faster than FP32 at 1 thread.
+   speed, no accuracy. **fp32**: `+22%`; the optimized graph went from ~2 to
+   ~117 NCHWc ops; 0 CTC lines changed (diffs ~1e-6, accumulation order
+   only).
+   **int8**: NCHWc never engages (`QLinearConv` has its own NHWC QGEMM path
+   and ORT's NCHWc transformer is fp32-only). The `+8%` recorded for the
+   v0.3.2-era int8 promotion came with a much older ORT and does not reproduce
+   here: re-audit 2026-11 (`docs/OPTIMIZATIONS_LOG.md`), 1 thread, ORT 1.31,
+   lossless in-place `--promote-only` (bit-identical ids/lengths/conf) →
+   rec/rtl/world parity, `rec_cjk` ~12% slower, 0 NCHWc ops in the optimized
+   graph. Use `--no-promote` for every int8 build (1-D wins); the fp32 gain
+   stands, so promotion stays default for an fp32 rebuild.
 5. **Fuse the confidence head (`--no-fuse-head` to skip).** `conf` is the
    argmax-class probability; replace its 6-node `ReduceMax/Sub/Exp/ReduceSum/
    Reciprocal/Mul` decomposition with `Softmax → ReduceMax`. `ids`/`lengths`
