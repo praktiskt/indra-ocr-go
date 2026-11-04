@@ -18,6 +18,35 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### Skew search: stride 4 / 2 on the refinement passes — `v0.35.0`
+
+- **What:** `estimateSkewPy` (`upright.go`) scores row sharpness over 46
+  coarse angles (2 deg steps, half-size thumb, stride 4) and then refines:
+  ~27 angles at 0.5 deg on the 800-px thumb, then 11 at 0.1 deg. The two
+  refinement passes now sample every **4th** and **2nd** pixel instead of
+  every 2nd and every pixel (same angles, same scorer). Sampled pixels drop
+  ~3.6x; the *cost model* is the key: the refinement passes were ~96% of the
+  skew search, not the coarse grid.
+- **Angles (199 FUNSD pages):** identical on **196/199**; three differ by
+  exactly **0.1 deg** (the quantisation step). No rotation-class changes.
+- **Speed:**
+  - skew stage **12.46 -> 7.81 ms/page** (-37%), det-side path (preview +
+    skew + orient + turn + det) **74.7 -> 69.0 ms/page** (-7.6%), 1 thread;
+  - pool (8 workers x 1 thread, interleaved A/B, 3 rounds): **21.45 / 21.52 /
+    21.52 -> 22.92 / 23.32 / 22.67 pages/s (+6.8%)**; confirmation run
+    **19.62 -> 20.93 (+6.7%)**, peak RSS **2832 -> 2790 MB (-1.5%)**.
+  The pool gain is far larger than the stage delta because `evalAngles` runs
+  one goroutine per angle: 8 workers x ~46 goroutines contending for 16 cores;
+  cutting samples cuts both work and scheduler/memory pressure.
+- **Quality:** guard recall **0.9319 -> 0.9319**; only **7/199 pages** change
+  (94 lines), **0 pages degraded >5pp**, 1 page improved >5pp.
+- **Gauntlet (150 pages, differential, threads=2):** cord word 0.7423 ->
+  0.7362 (-0.6pp, char 0.9141 -> 0.9153), funsd-degraded and xfund identical,
+  funsd-photo word 0.7328 -> 0.7335, sroie identical. Within the 1pp reject
+  bar on the noisiest subset (cord GT denominators are tiny), char recall up.
+- **Upstream delta:** upstream samples the 0.5 deg pass at stride 2 and the
+  0.1 deg pass at stride 1; see `DEVIATIONS.md`.
+
 ### Recognizer batching: `WidthBatches` ratio 1.3 -> 1.15 -> 1.05 — `v0.33.0` / `v0.34.0`
 
 - **What:** `WidthBatches` (`detinput.go`, port of upstream `width_batches`)

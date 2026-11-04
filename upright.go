@@ -115,8 +115,18 @@ func arangeF(start, step float64, n int) []float64 {
 // half-size thumbnail; the two best angles and 0 are then refined in 0.5 and
 // 0.1 degree steps on the full thumbnail (800 pixels), where small text rows
 // are still resolved. Port of estimate_skew.
+//
+// The 0.5/0.1 degree passes sample every 4th/2nd pixel instead of 2nd/every
+// pixel: the sampled pixel count drops ~3.6x (same angles, same scoring),
+// which is invisible to the argmax on 196/199 FUNSD pages, and worth +6.7%
+// pool throughput (the angle goroutines were contending for cores). See
+// docs/OPTIMIZATIONS_LOG.md.
 func estimateSkewPy(g *Gray) float64 {
-	const side = 800
+	const (
+		side       = 800
+		midStride  = 4 // 0.5 degree pass
+		fineStride = 2 // 0.1 degree pass
+	)
 	fine := inkThumb(g, side)
 	mean := 0.0
 	for _, p := range fine.Pix {
@@ -153,7 +163,7 @@ func estimateSkewPy(g *Gray) float64 {
 			}
 		}
 	}
-	nv := evalAngles(near, fine, 2)
+	nv := evalAngles(near, fine, midStride)
 	a1 := near[0]
 	best := nv[0]
 	for i := 1; i < len(near); i++ {
@@ -162,7 +172,7 @@ func estimateSkewPy(g *Gray) float64 {
 		}
 	}
 	last := arangeF(a1-0.5, 0.1, 11)
-	lv := evalAngles(last, fine, 1)
+	lv := evalAngles(last, fine, fineStride)
 	fineB := a1
 	fineV := best
 	for i := range last {

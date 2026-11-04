@@ -7,6 +7,20 @@ is not mistaken for a bug. Everything else is expected to match; the model-level
 changes are in [`OPTIMIZATIONS_LOG.md`](OPTIMIZATIONS_LOG.md) and the evaluation
 method in [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-eval/SKILL.md).
 
+## Skew search refinement: sparser sampling
+
+- **What:** `estimateSkewPy` samples every 4th pixel on the 0.5 deg refinement
+  pass and every 2nd on the 0.1 deg pass (upstream: 2nd and every pixel).
+  Angles, thumbnails and the scorer are unchanged.
+- **Effect:** skew stage -37%, pool **+6.8%** (8x1 thread), peak RSS -1.5%.
+  Final angle identical on 196/199 FUNSD pages (3 differ by the 0.1 deg
+  quantisation); guard recall unchanged; gauntlet neutral (cord -0.6pp word /
+  +0.1pp char, others equal).
+- **Why:** the refinement passes were ~96% of the skew cost, and their angle
+  goroutines compete with the pool's workers; the sparser sampling leaves the
+  argmax alone.
+- **Where:** `upright.go`; evidence in `OPTIMIZATIONS_LOG.md` (`v0.35.0`).
+
 ## Recognizer batching: padding ratio 1.05 instead of 1.3
 
 - **What:** `WidthBatches` (`detinput.go`, the port of upstream
