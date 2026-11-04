@@ -651,6 +651,41 @@ delta / baseline.
   with the fixed tool the honest result is parity-to-negative, not a
   regression.
 
+### Page batching for det/orient at the pool level — bit-identical, but 10-22% slower
+
+- **Idea:** det (35% of per-page) and orientation (~20% of the 28% upright
+  stage) run one page per `Run`. Stacking same-shape pages into one batch at the
+  pool would amortize per-`Run` dispatch/allocation and, in theory, improve
+  weight reuse in the MLAS conv kernels.
+- **Feasibility checked first:** `orient.onnx` already declares a dynamic batch
+  dim (`['B',1,768,768]`) and is batch-independent (`ReduceMean` axes `[2,3]`,
+  then `Gemm`+`Softmax` per sample), so no model change is needed. `det.onnx`
+  hardcodes batch=1 (`[1,1,'H','W']`); a /tmp copy with the dim made dynamic
+  loads and runs correctly, so even that is a dim edit, not a graph rewrite —
+  cost was not the blocker.
+- **Per-sample numerics are exact:** with B pages stacked, every sample's output
+  is bit-identical to its B=1 run (checked orient B=4 vs the top half of B=8;
+  det B=2 vs B=4 on a dynamic-batch copy). The rejection is purely throughput.
+- **Per-page time vs batch size** (measured per `Run`, best-of-N, realistic
+  768²/1056² ink maps, one session):
+  - orient, 1 thread: **6.56 ms** (B=1) → 7.62 (2) / 8.02 (4) / 7.63 (8)
+    — **+16-22%**;
+  - det, 1 thread: **46.2 ms** (B=1) → 50.0 (2) / 51.0 (4) / 50.9 (8)
+    — **+10%**;
+  - the threads≥2 corner does not flip it either: orient B=4 per-page 4.26 ms
+    vs 3.47 at B=1 (2 threads) and 3.00 vs 2.04 (4 threads); det 32.8 vs 30.1
+    (2t) and 28.3 vs 23.7 (4t).
+- **Why:** both models are pixel-compute-bound, like rec — the batch dim only
+  turns N independent problems into one larger GEMM/NCHWc sweep, which loses
+  cache locality (the same mechanism as the rejected rec batching retune).
+  Per-`Run` dispatch is a small fraction of a 6-46 ms call, so there is nothing
+  to amortize. On this box the loss is also consistent with the throughput
+  ceiling being memory/power-bound: batching raises per-`Run` peak traffic.
+- **Verdict:** rejected. Keep one page per `Run`; do not revisit batching for
+  det/orient without new hardware evidence (e.g. a launch-bound accelerator
+  backend), where the tradeoff is different by construction. No code or model
+  changes were made.
+
 ### Det input shape bucketing (coarser than /32) — no churn to fix
 
 - **Hypothesis:** every page produces a distinct `det.onnx` input shape
