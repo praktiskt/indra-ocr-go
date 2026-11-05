@@ -151,6 +151,13 @@ Greek/Cyrillic. Calibrating a group model on the wrong script does not just
 degrade it, it makes it confabulate (`rec_cjk` on Latin crops reads CJK as
 garbage).
 
+Clean renders sit near the ceiling (cjk 0.996, world 0.999 char recall), so
+they cannot resolve a decoder/gate change. Keep a **degraded** copy as well
+(55% downscale -> back to size, blur 0.8, sigma 14 noise) and score both;
+those numbers are a differential, not a real-scan claim. `v0.38.0` used this
+to sweep the group LM gates (no gain). Any text source works (OPB gold or a
+Wikipedia extract); keep it per script and per line.
+
 Scorer pattern (throwaway `hard_probe_test.go`, `HARD_DIR` env, never commit):
 8 workers x `NewOCR(2)`, per page {recall, lines, empty, ms, rotation, skew},
 log aggregate + worst-5, dump per-page JSON beside the scratch data.
