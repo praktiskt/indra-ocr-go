@@ -18,14 +18,20 @@ Python runs through `uv` — nothing to install by hand. `omni-parse-bench` is
 **Cost.** A full sweep is heavy — roughly ~10-20 min to render ~3k pages,
 ~17 min for the Go runner (one page at a time), ~11 min upstream at `--procs 8`.
 Run it **sparingly** (releases, or after a model / pipeline change), not per
-commit; use `--limit`/`--suites` for a fast subset.
+commit; use `--limit`/`--suites` for a fast subset. **`--limit` slices in
+manifest order** — the first 300 pages are all `olmo_arxiv_math`, so a limited
+run is not a representative sample; use `--suites` or the full run.
 
 ## Go port
 
 ```sh
-bench/opb/run.sh /tmp/opb                 # full 2937 pages
+bench/opb/run.sh /tmp/opb                 # full 2937 pages, furniture dropped
 bench/opb/run.sh /tmp/opb --limit 300     # first 300 (prep.py args pass through)
 ```
+
+`run.sh` drops page furniture; the reference headline below uses
+`-furniture` (the three-step form). Use run.sh for a quick run, the steps for
+a comparable number.
 
 or the three steps separately:
 
