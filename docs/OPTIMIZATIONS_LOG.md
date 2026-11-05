@@ -1253,6 +1253,11 @@ with `cv2.setNumThreads(1)`:
   math, tables, forms, multi-column, multilingual, handwriting, rotation/skew,
   old scans, tiny text...) — is the distribution the models were tuned for.
   Method + how to run: see the quality-eval skill.
+- **Full 2937-page OPB, v0.40 (`-furniture`, default pool): headline 0.6015**
+  (text 0.3936, tables 0.5111, layout 0.8997), median 372 ms; vs v0.39
+  (0.5977 / 0.3924 / 0.5032 / 0.8976) that is **tables +0.79pp**, text
+  +0.12pp, layout +0.21pp, headline **+0.37pp**. Confirms the short-line LM
+  gate (`v0.40.0`) recovered the table family.
 - **Full 2937-page OPB, v0.39 (`-furniture`, default pool): headline 0.5977**
   (text 0.3924, tables 0.5032, layout 0.8976), median 347 ms. vs the v1.1
   reference 0.5731: text **+6.8pp**, layout **+2.8pp**, tables **-2.3pp**

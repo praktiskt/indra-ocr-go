@@ -68,16 +68,17 @@ not a like-for-like OCR comparison — it is a missing feature, not a regression
 
 | run | headline | text | tables | layout | median ms |
 |---|---|---|---|---|---|
-| **Go port v0.39 (OCR, `-furniture`)** | **0.5977** | 0.392 | 0.503 | 0.898 | 347 |
+| **Go port v0.40 (OCR, `-furniture`)** | **0.6015** | 0.394 | 0.511 | 0.900 | 372 |
+| Go port v0.39 (OCR, `-furniture`) | 0.5977 | 0.392 | 0.503 | 0.898 | 347 |
 | Go port (OCR, `-furniture`, v1.1 baseline) | 0.5731 | 0.324 | 0.526 | 0.870 | 209 |
 | Go port (OCR, furniture dropped) | 0.5687 | 0.311 | 0.526 | 0.870 | 234 |
 | upstream `--mode ocr` | 0.5714 | 0.326 | 0.512 | 0.876 | 591 |
 | upstream `auto` | 0.6155 | 0.405 | 0.563 | 0.879 | 504 |
 
-v0.39 vs the v1.1 baseline: text **+6.8pp**, layout **+2.8pp**, tables
-**−2.3pp**, net headline **+2.5pp**. The text/layout gain is the LM beam search
-on every line (`v0.37.0`); the tables dip is the same decode and is the next
-target.
+v0.40 vs the v1.1 baseline: text **+7.0pp**, layout **+3.0pp**, tables
+**−1.5pp**, net headline **+2.8pp**. The text/layout gain is the LM beam search
+on every line (`v0.37.0`); the short-line gate (`v0.40.0`) recovered the tables
+family from 0.5032 to 0.5111.
 
 With `-furniture` the port **matches upstream on OCR** (+0.17pp headline) at
 ~3x lower latency, and is ahead on tables (+1.4pp). The default drops page
