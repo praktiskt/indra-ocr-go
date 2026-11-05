@@ -18,6 +18,25 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### LM tables stored as float32 — `v0.38.0`
+
+- **What:** `ngramLM.pVals`/`hVals` are `[]float32` (was `[]float64`), and the
+  npz reader is `npyF32` (a float64 member is narrowed once at load). The
+  shipped `lm*.npz` members are already `float32`.
+- **Why:** the port upcast every table value to float64 and held 8 bytes per
+  entry; keys are `uint64`, so the table went 16 -> **12 bytes/entry (25%
+  less)**. Values are used as `float64(f32)`, exactly the value the old loader
+  produced, so the beam search sees identical numbers.
+- **Memory:** base `lm.npz` (3,142,338 entries) **-12.6 MB**; `lm_cjk.npz`
+  (3,480,734) **-13.9 MB**; `lm_world.npz` (2,281,102) **-9.1 MB** — per LM
+  when it is loaded (they are lazy). The loader's transient value slice also
+  halves.
+- **Verification:** 199-page guard recall **0.9441 -> 0.9441**; a line-for-line
+  dump of all 199 pages is **byte-identical** before/after (so this is a
+  storage-only change).
+- **Upstream delta:** none (the LM values are unchanged).
+
+
 ### LM beam search on every line: base gate 1.0, alpha 0.4 — `v0.37.0`
 
 - **What:** `meta.json` `lm_params.base` = `{alpha: 0.4, beta: 1.5, gate: 1.0}`.

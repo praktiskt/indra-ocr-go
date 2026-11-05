@@ -204,21 +204,23 @@ func npyU64(f *npyFile) []uint64 {
 	return out
 }
 
-// npyF64 reads a float array ('<f8' or '<f4') as float64.
-func npyF64(f *npyFile) []float64 {
+// npyF32 reads a float array ('<f4' or '<f8') as float32. The shipped LMs
+// store float32, so this is lossless for them; a float64 array is narrowed
+// once at load.
+func npyF32(f *npyFile) []float32 {
 	switch f.descr {
 	case "<f8", "|f8", "=f8":
 		n := len(f.data) / 8
-		out := make([]float64, n)
+		out := make([]float32, n)
 		for i := range out {
-			out[i] = math.Float64frombits(binary.LittleEndian.Uint64(f.data[i*8:]))
+			out[i] = float32(math.Float64frombits(binary.LittleEndian.Uint64(f.data[i*8:])))
 		}
 		return out
 	default: // "<f4" and friends
 		n := len(f.data) / 4
-		out := make([]float64, n)
+		out := make([]float32, n)
 		for i := range out {
-			out[i] = float64(math.Float32frombits(binary.LittleEndian.Uint32(f.data[i*4:])))
+			out[i] = math.Float32frombits(binary.LittleEndian.Uint32(f.data[i*4:]))
 		}
 		return out
 	}
@@ -234,9 +236,9 @@ type ngramLM struct {
 	vocabSize int
 	bits      int
 	pKeys     []uint64
-	pVals     []float64
+	pVals     []float32
 	hKeys     []uint64
-	hVals     []float64
+	hVals     []float32
 
 	cacheMu sync.Mutex
 	cache   map[[2]uint64]float64 // (packed history+token, token) -> logp
@@ -262,18 +264,18 @@ func newNgramLM(z map[string]*npyFile) (*ngramLM, error) {
 	}
 	type table struct {
 		keys []uint64
-		vals []float64
+		vals []float32
 	}
 	pt := make([]table, lm.order)
 	ht := make([]table, lm.order)
 	for n := 0; n < lm.order; n++ {
-		pt[n] = table{npyU64(z[fmt.Sprintf("k%d", n)]), npyF64(z[fmt.Sprintf("v%d", n)])}
-		ht[n] = table{npyU64(z[fmt.Sprintf("hk%d", n)]), npyF64(z[fmt.Sprintf("hb%d", n)])}
+		pt[n] = table{npyU64(z[fmt.Sprintf("k%d", n)]), npyF32(z[fmt.Sprintf("v%d", n)])}
+		ht[n] = table{npyU64(z[fmt.Sprintf("hk%d", n)]), npyF32(z[fmt.Sprintf("hb%d", n)])}
 	}
 	// All history lengths in one sorted table, the length in the top bits.
 	type kv struct {
 		k uint64
-		v float64
+		v float32
 	}
 	pAll := make([]kv, 0, len(pt[0].keys)*lm.order)
 	hAll := make([]kv, 0, len(ht[0].keys)*lm.order)
@@ -288,12 +290,12 @@ func newNgramLM(z map[string]*npyFile) (*ngramLM, error) {
 	sort.Slice(pAll, func(i, j int) bool { return pAll[i].k < pAll[j].k })
 	sort.Slice(hAll, func(i, j int) bool { return hAll[i].k < hAll[j].k })
 	lm.pKeys = make([]uint64, len(pAll))
-	lm.pVals = make([]float64, len(pAll))
+	lm.pVals = make([]float32, len(pAll))
 	for i, e := range pAll {
 		lm.pKeys[i], lm.pVals[i] = e.k, e.v
 	}
 	lm.hKeys = make([]uint64, len(hAll))
-	lm.hVals = make([]float64, len(hAll))
+	lm.hVals = make([]float32, len(hAll))
 	for i, e := range hAll {
 		lm.hKeys[i], lm.hVals[i] = e.k, e.v
 	}
@@ -337,10 +339,10 @@ func (lm *ngramLM) logp(hist []int, t int) float64 {
 	for n := m; n >= 0; n-- {
 		pk := lmPack(append(append([]int{}, hs[n]...), t), lm.bits)
 		if i := lm.find(lm.pKeys, tagKey(pk, n)); i >= 0 {
-			val = acc + lm.pVals[i]
+			val = acc + float64(lm.pVals[i])
 			break
 		}
-		acc += lm.hVals[lm.find(lm.hKeys, tagKey(lmPack(hs[n], lm.bits), n))]
+		acc += float64(lm.hVals[lm.find(lm.hKeys, tagKey(lmPack(hs[n], lm.bits), n))])
 	}
 	if math.IsNaN(val) {
 		val = acc - math.Log(float64(lm.vocabSize))
@@ -361,14 +363,14 @@ func (lm *ngramLM) maxLogp() float64 {
 	}
 	top := -math.Log(float64(lm.vocabSize))
 	for _, v := range lm.pVals {
-		if v > top {
-			top = v
+		if float64(v) > top {
+			top = float64(v)
 		}
 	}
 	bo := 0.0
 	for _, v := range lm.hVals {
 		if v > 0 {
-			bo += v
+			bo += float64(v)
 		}
 	}
 	lm.maxp = top + bo
