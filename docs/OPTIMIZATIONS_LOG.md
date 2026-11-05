@@ -771,6 +771,25 @@ delta / baseline.
 
 ## Rejected (do not re-run without new data)
 
+### Group LM gates (`cjk`/`world`/`rtl`): raise to 1.0 — no gain
+
+- **What:** swept `cjk`/`world` gate 0.95 -> 1.0 (alpha 0.2) and `rtl` from the
+  code defaults (0.9 / 0.5) to 1.0 / 0.4.
+- **Guard:** per-script rendered pages, 70 lines each — Noto Sans CJK (ja),
+  Noto Sans Devanagari (hi), Noto Naskh Arabic (ar), raqm shaping, exact GT;
+  clean and degraded (55% downscale + blur 0.8 + sigma 14 noise). Character
+  recall (difflib, whitespace removed):
+  - cjk clean **0.9960 -> 0.9960**; degraded **0.9701 -> 0.9695**
+  - world clean **0.9988 -> 0.9988**; degraded **0.9972 -> 0.9969**
+  - rtl degraded **0.9836 -> 0.9836**
+- **Verdict:** no gain; the deltas are <0.1pp and slightly negative on the
+  degraded set. The group LMs are already at their useful point at alpha 0.2
+  (and the shipped lines rarely sit in the 0.95..1.0 confidence band). Keep
+  `cjk`/`world` at 0.95, `rtl` at the defaults.
+- **Note:** absolute numbers are on synthetic renders (clean is near-ceiling);
+  they are a differential, not a real-scan claim.
+
+
 ### Rec: rewrite the dead Vietnamese head rows — rejected
 
 - **What:** replaced the 92 Vietnamese Extended Additional head rows with
