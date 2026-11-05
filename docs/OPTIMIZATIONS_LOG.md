@@ -18,6 +18,26 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### LM beam search: keep very short lines greedy — `v0.40.0`
+
+- **What:** `LMMinChars = 8` (`recognize.go`): a line whose greedy CTC
+  collapse is shorter than 8 characters is not re-read by the beam search,
+  even when the LM gate is open. Long lines are unchanged.
+- **Why:** OPB `tables_derived` regressed when the LM ran on every line
+  (`v0.37.0`): table cells and form fields are short, so the n-gram has no
+  context and its per-token bonus (beta) just moves them. Keeping them greedy
+  recovers the table text without touching prose.
+- **OPB (same pages, no `-math`):** `tables_derived` **0.5416 -> 0.5491
+  (+0.75pp)**, `realdoc_pages` 0.7775 -> 0.7798 (+0.23); `forms_federal`
+  0.7087 and `forms_filled` 0.5701 unchanged.
+- **FUNSD guard:** **0.9441 -> 0.9432 (-0.09pp)**, 19 words; per-page audit
+  0/199 pages down >5pp (worst -4.7pp, 2 words) and 0 up >5pp. Inside the
+  reject bar; the table gain is larger than the guard loss.
+- **Sweep:** 12 chars loses 0.21pp on the guard (0.9420) and 16 loses 0.42pp
+  (0.9399) for no measured table gain over 8; 0 is the old behaviour.
+- **Upstream delta:** upstream has no length gate; see `DEVIATIONS.md`.
+
+
 ### LM load: sort the key/value columns in place — `v0.39.0`
 
 - **What:** `newNgramLM` builds one `kvTable` (`keys []uint64`, `vals

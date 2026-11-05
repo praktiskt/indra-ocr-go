@@ -21,6 +21,10 @@ const (
 	LMBeam  = 8
 	// A class under this probability at a step is not tried by the beam search.
 	LMCandFloor = 3e-3
+	// Lines shorter than this (CTC-collapsed characters) stay greedy: table
+	// cells and form fields are short, and the LM's token bonus moves them
+	// without adding context.
+	LMMinChars = 8
 )
 
 // groupRec is one recognizer and its script group.
@@ -247,7 +251,7 @@ func (o *OCR) recognizeSel(out []recLine, boxes [][4]float32, band, tall []lineC
 				conf /= float64(len(keptP))
 			}
 			stepT, tokIDs := keptT, kept
-			if lm != nil && MinConf <= conf && conf < gate {
+			if lm != nil && MinConf <= conf && conf < gate && len(kept) >= LMMinChars {
 				// CTC prefix beam search with the language model breaks close
 				// calls; its steps replace the greedy peaks.
 				ids2, steps := lmBeamSearch(
