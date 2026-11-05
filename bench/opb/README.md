@@ -68,22 +68,27 @@ not a like-for-like OCR comparison — it is a missing feature, not a regression
 
 | run | headline | text | tables | layout | median ms |
 |---|---|---|---|---|---|
-| **Go port v0.40 (OCR, `-furniture`)** | **0.6015** | 0.394 | 0.511 | 0.900 | 372 |
+| **Go port v0.41 (OCR, `-furniture`, math)** | **0.6650** | 0.595 | 0.505 | 0.896 | 523 |
+| Go port v0.40 (OCR, `-furniture`, no math) | 0.6015 | 0.394 | 0.511 | 0.900 | 372 |
 | Go port v0.39 (OCR, `-furniture`) | 0.5977 | 0.392 | 0.503 | 0.898 | 347 |
 | Go port (OCR, `-furniture`, v1.1 baseline) | 0.5731 | 0.324 | 0.526 | 0.870 | 209 |
 | Go port (OCR, furniture dropped) | 0.5687 | 0.311 | 0.526 | 0.870 | 234 |
 | upstream `--mode ocr` | 0.5714 | 0.326 | 0.512 | 0.876 | 591 |
 | upstream `auto` | 0.6155 | 0.405 | 0.563 | 0.879 | 504 |
 
-v0.40 vs the v1.1 baseline: text **+7.0pp**, layout **+3.0pp**, tables
-**−1.5pp**, net headline **+2.8pp**. The text/layout gain is the LM beam search
-on every line (`v0.37.0`); the short-line gate (`v0.40.0`) recovered the tables
-family from 0.5032 to 0.5111.
+v0.40 (no math) vs the v1.1 baseline: text **+7.0pp**, layout **+3.0pp**,
+tables **−1.5pp**, net headline **+2.8pp**. The text/layout gain is the LM beam
+search on every line (`v0.37.0`); the short-line gate (`v0.40.0`) recovered the
+tables family from 0.5032 to 0.5111.
 
-With `-furniture` the port **matches upstream on OCR** (+0.17pp headline) at
-~3x lower latency, and is ahead on tables (+1.4pp). The default drops page
-furniture, which is the whole gap: the `header_footer` tag scores 0.146 without
-it and 0.589 with it (upstream 0.606).
+v0.41 turns math on by default (library and runner; `-math=false` restores the
+v0.40 row). Compare upstream with `--math` when math is on: the upstream rows
+above are math-off.
+
+At the v1.1 baseline, `-furniture` **matched upstream on OCR** (+0.17pp
+headline) at ~3x lower latency. v0.41 (math on) is **+9.4pp** over upstream
+`--mode ocr`. Furniture is still dropped by default and is the `header_footer`
+gap (0.146 without it, 0.589 with it; upstream 0.606).
 
 Upstream's published numbers (x86, 4 vCPU, one page at a time) are `auto` 62.1
 and OCR-only 57.5 at 228/303 ms — the runs above reproduce them within ~0.5.
@@ -96,12 +101,11 @@ and OCR-only 57.5 at 228/303 ms — the runs above reproduce them within ~0.5.
 - **Furniture:** Go markdown drops headers/footers by default; run with
   `-furniture` (`PoolBuilder.Furniture(true)`) to keep them. That default is the
   entire headline gap (the `header_footer` tag).
-- **Math:** the LaTeX path is opt-in (`-math`, `OCR.Math`); the reference rows
-  above run without it, so `olmo_arxiv_math` is low (0.145). With `-math` the
-  same 514 pages score **0.666** (`olmo_old_scans_math` 0.176 -> 0.184), at a
-  cost of **~0.9pp** on `tables_derived` (0.542 -> 0.533): `mathcls` also flags
-  statistics lines in prose/table cells and the decoder rewrites them as spaced
-  LaTeX. Compare upstream with `--math` if you enable it. A structural trigger
-  (`^`/`_`/`\frac`/`\int`...) was tried and lost more math (0.642) than it
-  recovered tables (0.539), so the `$` trigger stays.
+- **Math:** on by default since v0.41 (`OCR.Math`, `-math`; `-math=false`
+  opts out). It moves `olmo_arxiv_math` **0.145 -> 0.666** and the headline
+  **0.6015 -> 0.6650**, at -0.6pp tables / -0.4pp layout and +41% median time
+  (`mathcls` also flags statistics lines in prose/table cells and the decoder
+  rewrites them as spaced LaTeX). Compare upstream with `--math` when enabled.
+  A structural trigger (`^`/`_`/`\frac`/`\int`...) was tried and lost more
+  math (0.642) than it recovered tables (0.539), so the `$` trigger stays.
 - **Render parity:** page PNGs must be dpi 200 to match indra's rasterisation.

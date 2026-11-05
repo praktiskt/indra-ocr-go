@@ -49,7 +49,7 @@ func main() {
 	workers := flag.Int("workers", 8, "pool workers")
 	threads := flag.Int("threads", 1, "intra-op threads per worker")
 	furniture := flag.Bool("furniture", false, "keep page headers/footers in markdown")
-	mathOn := flag.Bool("math", false, "read math lines as LaTeX")
+	mathOn := flag.Bool("math", true, "read math lines as LaTeX (default on; -math=false to disable)")
 	usePDF := flag.Bool("pdf", false, "feed the item's pdf via CallPDF (needs a 'pdf' path)")
 	flag.Parse()
 	if *manifest == "" || *out == "" {

@@ -70,8 +70,9 @@ type OCR struct {
 	// Furniture keeps page headers and footers in Markdown (upstream
 	// load(furniture=True)). The default, false, drops them. Set before Call.
 	Furniture bool
-	// Math reads math lines as text with inline LaTeX (upstream math=True,
-	// default off). The math models are embedded and load lazily on first use.
+	// Math reads math lines as text with inline LaTeX (upstream math=True;
+	// default on). The math models are embedded and load lazily on first use;
+	// set Math=false to opt out.
 	Math       bool
 	mathOnce   sync.Once
 	mathReader *mathReader
@@ -97,7 +98,7 @@ func NewOCRWithThreads(tc Threads) (*OCR, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &OCR{s: s, m: m, v: m.vocab}, nil
+	return &OCR{s: s, m: m, v: m.vocab, Math: true}, nil
 }
 
 // RecHeight is the recognizer crop height (the rec model's line-band input

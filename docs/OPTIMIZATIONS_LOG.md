@@ -18,6 +18,27 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### Math on by default (image path + pool APIs) — `v0.41.0`
+
+- **What:** `OCR.Math` defaults true (`NewOCR`/`NewOCRWithThreads`) and the
+  pool defaults math on (`NewPoolWithThreads`, `PoolBuilder`; `Math(false)`
+  opts out). The OPB runner's `-math` now defaults true (`-math=false` gives
+  the old mode). The PDF text-layer math guard is unchanged.
+- **Why:** the math models were shipped but opt-in and unused, so the
+  benchmark left `olmo_arxiv_math` at **0.145**. With math the same pages are
+  **0.666**, and the full OPB headline moves **0.6015 -> 0.6650 (+6.35pp)**.
+- **Full OPB (2937 pages, `-furniture`):** math-on text **0.5945** (vs 0.3936,
+  +20.1pp), tables **0.5048** (vs 0.5111, -0.63pp), layout **0.8955** (vs
+  0.8997, -0.42pp); headline **0.6650**; median 523 vs 372 ms.
+- **Regression tripwires:** FUNSD guard **0.9432 -> 0.9431** (1 word),
+  per-page 0/199 down >5pp (one page -0.6pp). Non-math OPB suites:
+  `forms_*`/`realdoc_pages` unchanged, `tables_derived` 0.5491 -> 0.5428,
+  `docparsing_images` 0.796 -> 0.786.
+- **Cost:** FUNSD avg 551 -> 808 ms/page (+47%): mathcls flags lines and the
+  autoregressive decoder runs even when its reading is discarded. The user
+  deprioritised speed; `Math(false)` / `-math=false` restores the old cost.
+- **Upstream delta:** upstream defaults `math=False`; see `DEVIATIONS.md`.
+
 ### LM beam search: keep very short lines greedy — `v0.40.0`
 
 - **What:** `LMMinChars = 8` (`recognize.go`): a line whose greedy CTC

@@ -1,5 +1,21 @@
 # Deviations from upstream indra
 
+## Math on by default (image path)
+
+- **What:** `OCR.Math` and the pool defaults are **true**; `Math(false)` (or
+  `-math=false` in the OPB runner) opts out. Upstream defaults `math=False`.
+  The PDF text-layer guard (a garbled math reading never replaces the layer's
+  text) is unchanged.
+- **Effect:** full OPB (2937 pages, `-furniture`) headline **0.6650** vs
+  0.6015 without math (**+6.35pp**), text **+20.1pp** (`olmo_arxiv_math`
+  0.145 -> 0.666); tables -0.63pp, layout -0.42pp. FUNSD **0.9432 -> 0.9431**
+  (0/199 pages down >5pp). Median 523 vs 372 ms.
+- **Why:** the math models were otherwise unused, so math documents were read
+  as plain text. The accuracy gain is large and the non-math regression is
+  within the bar; speed is opt-out via `Math(false)`.
+- **Where:** `ocr.go`, `pool.go`, `bench/opb/main.go`; evidence in
+  `OPTIMIZATIONS_LOG.md` (`v0.41.0`).
+
 The port aims to reproduce the Python reference (`indra_ocr`,
 <https://github.com/datalab-to/indra>) on the same inputs. This file records the
 **intentional** places where its output differs, so a diff against the reference

@@ -11,7 +11,7 @@ downloaded at runtime.
 Four script-group recognizers (base Latin/Greek/Cyrillic, CJK, RTL, world
 Indic/Caucasian) routed per line by a script classifier, with n-gram
 language-model beam search; plus detector, reading order, orientation (including
-vertical columns) and optional math (LaTeX) models.
+vertical columns) and math (LaTeX) models (on by default).
 
 Every recognizer ships as a mixed-precision int8 build (group models with
 **per-script** calibration) and the order model as dynamic int8. Measured on the
@@ -49,7 +49,7 @@ fmt.Println(page.Markdown)                 // markdown, blocks, reading order
 | `NewOCR(threads)` | one handle; `Call` (image), `CallTurn` (image, orientation on/off), `CallAll` (batch), `CallText` (caller-supplied text layer), `CallPDF` (PDF bytes) |
 | `NewPoolAuto()` / `NewPoolBuilder()` | concurrent workers (`NumCPU/2` x 1 thread by default); same calls, plus `CallFiles(paths)` |
 | `Page` | `Lines` (reading order), `Blocks`, `Markdown`, `Text()`, `Source`, `Note`, `Rotation`, `Skew`, `Vertical` |
-| options | `ocr.Furniture` (keep headers/footers), `ocr.Math` (read math as LaTeX), `PoolBuilder.Workers/Threads/MemBudget/Furniture` |
+| options | `ocr.Furniture` (keep headers/footers), `ocr.Math` (read math as LaTeX; default on), `PoolBuilder.Workers/Threads/MemBudget/Furniture` |
 
 `CallAll` pipelines one handle (recognition of one page overlaps detection of
 the next) and returns the pages in input order, identical to calling `Call`
