@@ -1233,7 +1233,21 @@ with `cv2.setNumThreads(1)`:
   math, tables, forms, multi-column, multilingual, handwriting, rotation/skew,
   old scans, tiny text...) — is the distribution the models were tuned for.
   Method + how to run: see the quality-eval skill.
-- **Full 2937-page OPB, current build (`-furniture`, default pool):**
+- **Full 2937-page OPB, v0.39 (`-furniture`, default pool): headline 0.5977**
+  (text 0.3924, tables 0.5032, layout 0.8976), median 347 ms. vs the v1.1
+  reference 0.5731: text **+6.8pp**, layout **+2.8pp**, tables **-2.3pp**
+  (the LM-on-every-line decode, `v0.37.0`); net headline **+2.5pp**.
+- **Weakest suites (v0.39):** handwriting 0.095 (`frbench`) / 0.142
+  (`handwriting_samples`), `olmo_arxiv_math` 0.145, `olmo_old_scans_math`
+  0.176, `olmo_old_scans` 0.314, `multilingual` 0.337, `tables_derived` 0.542.
+- **Math is a capability, not a gap:** the LaTeX path is opt-in (`-math`);
+  with it `olmo_arxiv_math` goes **0.1449 -> 0.666** (514 pages) and
+  `olmo_old_scans_math` 0.1756 -> 0.1844, at **-0.89pp** on `tables_derived`
+  (0.5416 -> 0.5327: `mathcls` flags statistics lines and the decoder rewrites
+  them as spaced LaTeX). A structural trigger (`^`/`_`/`\frac`/`\int`/Greek)
+  was tried: math 0.6418, tables 0.5386 — net loss, reverted. Keep the `$`
+  trigger; compare upstream with `--math` if math is enabled.
+- **Full 2937-page OPB, pre-v0.39 build (`-furniture`, default pool):**
   - **Go OCR (image input): headline 0.5784** (text 0.332, tables 0.523, layout
     0.880) vs upstream `--mode ocr` **0.5714** — **+0.7pp, the port beats the
     reference on OCR.**

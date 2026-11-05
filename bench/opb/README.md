@@ -68,10 +68,16 @@ not a like-for-like OCR comparison — it is a missing feature, not a regression
 
 | run | headline | text | tables | layout | median ms |
 |---|---|---|---|---|---|
-| **Go port (OCR, `-furniture`)** | **0.5731** | 0.324 | 0.526 | 0.870 | 209 |
+| **Go port v0.39 (OCR, `-furniture`)** | **0.5977** | 0.392 | 0.503 | 0.898 | 347 |
+| Go port (OCR, `-furniture`, v1.1 baseline) | 0.5731 | 0.324 | 0.526 | 0.870 | 209 |
 | Go port (OCR, furniture dropped) | 0.5687 | 0.311 | 0.526 | 0.870 | 234 |
 | upstream `--mode ocr` | 0.5714 | 0.326 | 0.512 | 0.876 | 591 |
 | upstream `auto` | 0.6155 | 0.405 | 0.563 | 0.879 | 504 |
+
+v0.39 vs the v1.1 baseline: text **+6.8pp**, layout **+2.8pp**, tables
+**−2.3pp**, net headline **+2.5pp**. The text/layout gain is the LM beam search
+on every line (`v0.37.0`); the tables dip is the same decode and is the next
+target.
 
 With `-furniture` the port **matches upstream on OCR** (+0.17pp headline) at
 ~3x lower latency, and is ahead on tables (+1.4pp). The default drops page
@@ -89,6 +95,12 @@ and OCR-only 57.5 at 228/303 ms — the runs above reproduce them within ~0.5.
 - **Furniture:** Go markdown drops headers/footers by default; run with
   `-furniture` (`PoolBuilder.Furniture(true)`) to keep them. That default is the
   entire headline gap (the `header_footer` tag).
-- **Math:** Go has no LaTeX path; math-heavy suites (`olmo_arxiv_math`) score
-  low for both engines.
+- **Math:** the LaTeX path is opt-in (`-math`, `OCR.Math`); the reference rows
+  above run without it, so `olmo_arxiv_math` is low (0.145). With `-math` the
+  same 514 pages score **0.666** (`olmo_old_scans_math` 0.176 -> 0.184), at a
+  cost of **~0.9pp** on `tables_derived` (0.542 -> 0.533): `mathcls` also flags
+  statistics lines in prose/table cells and the decoder rewrites them as spaced
+  LaTeX. Compare upstream with `--math` if you enable it. A structural trigger
+  (`^`/`_`/`\frac`/`\int`...) was tried and lost more math (0.642) than it
+  recovered tables (0.539), so the `$` trigger stays.
 - **Render parity:** page PNGs must be dpi 200 to match indra's rasterisation.
