@@ -220,6 +220,14 @@ on every commit. A full sweep is roughly ~10-20 min to render ~3k pages,
 ~17 min for the Go runner (one page at a time) and ~11 min upstream at
 `--procs 8`; use `--limit`/`--suites` for a quick signal.
 
+Two traps. **`--limit` slices in manifest order** (the first 300 pages are all
+`olmo_arxiv_math`), so a limited run is not representative — use `--suites` or
+the full run. **Math is opt-in** (`-math`): without it `olmo_arxiv_math` is
+~0.145; with it ~0.666 on the same pages, at ~0.9pp on `tables_derived`
+(mathcls also flags statistics lines in prose/table cells). Compare upstream
+with `--math` if you enable it. Weak suites to watch: handwriting (~0.10),
+`multilingual` (exact-anchor form strings), `olmo_old_scans` (~0.31).
+
 Nothing to install by hand — the scripts run under `uv` (see `bench/opb/`):
 
 ```sh
