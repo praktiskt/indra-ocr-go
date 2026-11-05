@@ -9,7 +9,10 @@ tests; the **headline** is the mean of the `text`, `tables` and `layout`
 families. The distribution is the one the models were tuned for, so it catches
 page types the FUNSD corpus and brutal-print gauntlet do not.
 
-Python runs through `uv` — nothing to install by hand. The dataset
+Python runs through `uv` — nothing to install by hand. `omni-parse-bench` is
+**pinned to 0.2.0**: 1.x moved the manifest/scoring API (`data.read_manifest`,
+`Benchmark.grade`) and the harness below targets 0.2.0's
+`benchmark.load`/`score`/`summarize`. The dataset
 (`hf://datasets/datalab-to/omni_parse_bench`) downloads on first use.
 
 **Cost.** A full sweep is heavy — roughly ~10-20 min to render ~3k pages,
@@ -27,10 +30,10 @@ bench/opb/run.sh /tmp/opb --limit 300     # first 300 (prep.py args pass through
 or the three steps separately:
 
 ```sh
-uv run --with 'omni-parse-bench[benchmark]' --with pypdfium2 --with opencv-python-headless \
+uv run --with 'omni-parse-bench[benchmark]==0.2.0' --with pypdfium2 --with opencv-python-headless \
     bench/opb/prep.py --out /tmp/opb                 # render PNGs @ dpi 200 + manifest
 go run ./bench/opb -manifest /tmp/opb/manifest.json -out /tmp/opb/go.jsonl -workers 8 -furniture
-uv run --with 'omni-parse-bench[benchmark]' --with opencv-python-headless \
+uv run --with 'omni-parse-bench[benchmark]==0.2.0' --with opencv-python-headless \
     bench/opb/score.py --jsonl /tmp/opb/go.jsonl --imgs /tmp/opb/imgs --name go
 ```
 
@@ -47,7 +50,7 @@ benchmark's labels) and prints the summary; the full summary lands in
 Use `bench/opb_indra.py` from `datalab-to/indra`:
 
 ```sh
-uv run --with indra-ocr --with 'omni-parse-bench[benchmark]' --with pypdfium2 \
+uv run --with indra-ocr --with 'omni-parse-bench[benchmark]==0.2.0' --with pypdfium2 \
     python bench/opb_indra.py --out runs/py --models <models> --mode ocr --procs 8
 ```
 

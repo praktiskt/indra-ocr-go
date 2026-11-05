@@ -7,7 +7,7 @@ Writes <out>/manifest.json (one {page_id, png, suite} per page) and
 <out>/imgs/<page_id>.png.
 
 Usage (uv):
-  uv run --with 'omni-parse-bench[benchmark]' --with pypdfium2 --with opencv-python-headless \
+  uv run --with 'omni-parse-bench[benchmark]==0.2.0' --with pypdfium2 --with opencv-python-headless \
       bench/opb/prep.py --out /tmp/opb [--limit N] [--suites a,b] [--dpi 200]
 """
 import argparse

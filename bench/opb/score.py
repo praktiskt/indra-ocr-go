@@ -6,7 +6,7 @@ builds the `{html, blocks}` outputs the benchmark expects, and prints the
 `headline` / `text` / `tables` / `layout` summary. Writes <name>_summary.json.
 
 Usage (uv):
-  uv run --with 'omni-parse-bench[benchmark]' --with opencv-python-headless \
+  uv run --with 'omni-parse-bench[benchmark]==0.2.0' --with opencv-python-headless \
       bench/opb/score.py --jsonl /tmp/opb/go.jsonl --imgs /tmp/opb/imgs --name go
 """
 import argparse
