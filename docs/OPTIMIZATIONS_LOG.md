@@ -18,6 +18,28 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### LM beam search on every line: base gate 1.0, alpha 0.4 — `v0.37.0`
+
+- **What:** `meta.json` `lm_params.base` = `{alpha: 0.4, beta: 1.5, gate: 1.0}`.
+  Previously absent, so the base group used the code defaults (`LMGate` 0.9,
+  `LMAlpha` 0.5). Now every kept line goes through the CTC prefix beam search
+  with the n-gram LM, and alpha is 0.4 instead of 0.5. No model file changes.
+- **Why:** the gate suppresses the LM on exactly the lines the recognizer is
+  unsure about; since the LM was fixed (`v0.31.0`) it is the strongest decoder
+  available. Alpha 0.5 over-corrects on entity-like text (xfund -0.47pp);
+  0.4 keeps the guard gain and cuts that to -0.17pp.
+- **Guard (199 pages):** **0.9318 -> 0.9441 (+1.23pp)**; total run
+  14.84 -> 15.50 s (~+4.5%).
+- **Gauntlet (150 pages, threads=2, measured before the scratch-data reset):**
+  cord 0.7362 -> 0.7423 (+0.61), funsd-degraded 0.6901 -> 0.7040 (+1.39),
+  funsd-photo 0.7335 -> 0.7491 (+1.56), sroie 0.0400 (the local metric is
+  blind to receipts), xfund 0.9638 -> 0.9621 (-0.17).
+- **Per-page audit (guard):** 0/199 pages down >5pp (worst -3.6pp), **12/199
+  up >5pp** (best +8.5pp). Reject rule met with margin.
+- **Upstream delta:** upstream gates at 0.9 and uses alpha 0.5; see
+  `DEVIATIONS.md`.
+
+
 ### Recognizer: restored the suppressed Vietnamese class priors — `v0.36.0`
 
 - **What:** `tools/rewrite_weights.py` rewrites one int32 per class in the
@@ -1087,19 +1109,6 @@ Done while hunting for further surgery (do not redo):
 ---
 
 ## Candidates (measured, not shipped)
-
-### LM gate: run the beam search on every line — measured `v0.36.0` candidate
-
-- **What:** `meta.json` `lm_params.base` gate 0.9 -> 1.0, alpha 0.5 -> 0.4.
-  Every line (not just `conf < 0.9`) gets the CTC prefix beam search with the
-  n-gram LM.
-- **Result (199 FUNSD + 150 gauntlet):** guard **0.9319 -> 0.9437
-  (+1.18pp)**; cord 0.7362 -> 0.7423 (+0.61); funsd-degraded 0.6901 -> 0.7072
-  (+1.71); funsd-photo 0.7335 -> 0.7488 (+1.53); xfund 0.9638 -> 0.9591
-  (-0.47). Alpha 0.4 beat 0.5 (xfund -0.17 vs -0.47) at equal guard.
-- **Not shipped:** this is a decode-path change, not a model-weight change;
-  it is held for a separate decision. Numbers above are the evidence if it is
-  taken.
 
 ### Recognizer: full FP32 — measured `v0.36.0` candidate
 

@@ -7,6 +7,19 @@ is not mistaken for a bug. Everything else is expected to match; the model-level
 changes are in [`OPTIMIZATIONS_LOG.md`](OPTIMIZATIONS_LOG.md) and the evaluation
 method in [`../.agents/skills/quality-eval/SKILL.md`](../.agents/skills/quality-eval/SKILL.md).
 
+## LM beam search: every kept line, alpha 0.4
+
+- **What:** the base group runs the CTC prefix beam search with the n-gram LM
+  on **every** kept line (`meta.json` `lm_params.base.gate` = 1.0) and uses
+  `alpha` 0.4 (`beta` 1.5). Upstream gates at `conf < 0.9` and uses alpha 0.5.
+- **Effect:** FUNSD guard **0.9318 -> 0.9441 (+1.23pp)**; gauntlet cord
+  0.7362 -> 0.7423, funsd-degraded 0.6901 -> 0.7040, funsd-photo 0.7335 ->
+  0.7491, xfund 0.9638 -> 0.9621. Per-page audit: 0/199 pages down >5pp,
+  12/199 up >5pp.
+- **Why:** the gate suppressed the LM on exactly the uncertain lines; alpha 0.4
+  keeps the gain without the xfund over-correction seen at 0.5.
+- **Where:** `models/meta.json`; evidence in `OPTIMIZATIONS_LOG.md` (`v0.37.0`).
+
 ## Recognizer: Vietnamese Extended Additional priors restored
 
 - **What:** the 92 Vietnamese Extended Additional classes (U+1EA0..U+1EF9 plus
