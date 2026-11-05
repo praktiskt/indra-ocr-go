@@ -246,6 +246,20 @@ type ngramLM struct {
 	maxpOK  bool
 }
 
+// kvTable is one key/value column pair sorted in place (sort.Sort). The LM
+// tables hold millions of entries; a []struct copy doubled the load-time peak.
+type kvTable struct {
+	keys []uint64
+	vals []float32
+}
+
+func (t *kvTable) Len() int           { return len(t.keys) }
+func (t *kvTable) Less(i, j int) bool { return t.keys[i] < t.keys[j] }
+func (t *kvTable) Swap(i, j int) {
+	t.keys[i], t.keys[j] = t.keys[j], t.keys[i]
+	t.vals[i], t.vals[j] = t.vals[j], t.vals[i]
+}
+
 // tagKey packs a packed key with its history-length tag in the top bits.
 func tagKey(k uint64, n int) uint64 {
 	return k | uint64(n)<<uint(lmTagShift)
@@ -273,32 +287,33 @@ func newNgramLM(z map[string]*npyFile) (*ngramLM, error) {
 		ht[n] = table{npyU64(z[fmt.Sprintf("hk%d", n)]), npyF32(z[fmt.Sprintf("hb%d", n)])}
 	}
 	// All history lengths in one sorted table, the length in the top bits.
-	type kv struct {
-		k uint64
-		v float32
+	// One key/value column pair, sorted in place: no []struct copy (the npz
+	// holds millions of entries, and the copy doubled the load-time peak).
+	var pAll, hAll kvTable
+	pn, hn := 0, 0
+	for n := 0; n < lm.order; n++ {
+		pn += len(pt[n].keys)
+		hn += len(ht[n].keys)
 	}
-	pAll := make([]kv, 0, len(pt[0].keys)*lm.order)
-	hAll := make([]kv, 0, len(ht[0].keys)*lm.order)
+	pAll.keys = make([]uint64, 0, pn)
+	pAll.vals = make([]float32, 0, pn)
+	hAll.keys = make([]uint64, 0, hn)
+	hAll.vals = make([]float32, 0, hn)
 	for n := 0; n < lm.order; n++ {
 		for i, k := range pt[n].keys {
-			pAll = append(pAll, kv{tagKey(k, n), pt[n].vals[i]})
+			pAll.keys = append(pAll.keys, tagKey(k, n))
+			pAll.vals = append(pAll.vals, pt[n].vals[i])
 		}
 		for i, k := range ht[n].keys {
-			hAll = append(hAll, kv{tagKey(k, n), ht[n].vals[i]})
+			hAll.keys = append(hAll.keys, tagKey(k, n))
+			hAll.vals = append(hAll.vals, ht[n].vals[i])
 		}
+		pt[n], ht[n] = table{}, table{}
 	}
-	sort.Slice(pAll, func(i, j int) bool { return pAll[i].k < pAll[j].k })
-	sort.Slice(hAll, func(i, j int) bool { return hAll[i].k < hAll[j].k })
-	lm.pKeys = make([]uint64, len(pAll))
-	lm.pVals = make([]float32, len(pAll))
-	for i, e := range pAll {
-		lm.pKeys[i], lm.pVals[i] = e.k, e.v
-	}
-	lm.hKeys = make([]uint64, len(hAll))
-	lm.hVals = make([]float32, len(hAll))
-	for i, e := range hAll {
-		lm.hKeys[i], lm.hVals[i] = e.k, e.v
-	}
+	sort.Sort(&pAll)
+	sort.Sort(&hAll)
+	lm.pKeys, lm.pVals = pAll.keys, pAll.vals
+	lm.hKeys, lm.hVals = hAll.keys, hAll.vals
 	return lm, nil
 }
 

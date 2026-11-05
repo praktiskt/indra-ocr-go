@@ -18,6 +18,23 @@ delta / baseline.
 
 ## Accepted (shipped)
 
+### LM load: sort the key/value columns in place — `v0.39.0`
+
+- **What:** `newNgramLM` builds one `kvTable` (`keys []uint64`, `vals
+  []float32`) per table and sorts it with `sort.Sort`, instead of building a
+  `[]struct{k,v}`, sorting that, and copying into two fresh slices.
+- **Why:** the LM tables hold millions of entries; the struct slice plus the
+  final copy doubled the load-time peak. Keys are unique within a table and
+  `tagKey` makes them unique across orders, so a comparison sort gives the
+  same order.
+- **Memory:** removes the `[]struct` copy: base `lm.npz` ~50 MB, `lm_cjk.npz`
+  ~55 MB, `lm_world.npz` ~36 MB transient at load (16 B/entry). Final tables
+  are unchanged.
+- **Verification:** guard **0.9441 -> 0.9441**; a line-for-line dump of all
+  199 pages is **byte-identical** (storage/load only).
+- **Upstream delta:** none.
+
+
 ### LM tables stored as float32 — `v0.38.0`
 
 - **What:** `ngramLM.pVals`/`hVals` are `[]float32` (was `[]float64`), and the
